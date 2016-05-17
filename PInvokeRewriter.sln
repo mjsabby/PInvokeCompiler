@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 14
+VisualStudioVersion = 14.0.24720.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PInvokeRewriter", "PInvokeRewriter.csproj", "{72BD4C06-43E2-4659-B342-DC1FF7B977CD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTests", "UnitTests\UnitTests.csproj", "{3828A7EF-9BDB-4FAB-9197-48C1F7EF6683}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{72BD4C06-43E2-4659-B342-DC1FF7B977CD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{72BD4C06-43E2-4659-B342-DC1FF7B977CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{72BD4C06-43E2-4659-B342-DC1FF7B977CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{72BD4C06-43E2-4659-B342-DC1FF7B977CD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3828A7EF-9BDB-4FAB-9197-48C1F7EF6683}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3828A7EF-9BDB-4FAB-9197-48C1F7EF6683}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3828A7EF-9BDB-4FAB-9197-48C1F7EF6683}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3828A7EF-9BDB-4FAB-9197-48C1F7EF6683}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
