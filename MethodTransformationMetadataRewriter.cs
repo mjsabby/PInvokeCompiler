@@ -20,11 +20,11 @@
 
         private readonly IMethodReference getProcAddress;
 
-        public MethodTransformationMetadataRewriter(IMethodReference loadLibrary, IMethodReference getProcAddress, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IPInvokeMethodsProvider methodsProvider)
+        public MethodTransformationMetadataRewriter(IMethodReference loadLibrary, IMethodReference getProcAddress, IMetadataHost host, IPInvokeMethodsProvider methodsProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
-            this.platformType = platformType;
-            this.nameTable = nameTable;
+            this.platformType = host.PlatformType;
+            this.nameTable = host.NameTable;
             this.methodsProvider = methodsProvider;
             this.loadLibrary = loadLibrary;
             this.getProcAddress = getProcAddress;

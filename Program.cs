@@ -32,29 +32,12 @@
                 var pinvokeMethodMetadataTraverser = new PInvokeMethodMetadataTraverser();
                 pinvokeMethodMetadataTraverser.TraverseChildren(mutable);
 
-                var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(pinvokeHelpersTypesAdder.LoadLibrary, pinvokeHelpersTypesAdder.GetProcAddress, host, host.PlatformType, host.NameTable, pinvokeMethodMetadataTraverser);
+                var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(pinvokeHelpersTypesAdder.LoadLibrary, pinvokeHelpersTypesAdder.GetProcAddress, host, pinvokeMethodMetadataTraverser);
                 methodTransformationMetadataRewriter.RewriteChildren(mutable);
 
                 var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(mutable.AssemblyReferences, host, host.PlatformType, host.NameTable, methodTransformationMetadataRewriter);
                 pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
-
-                assembly = mutable;
-
-                using (var stream = File.Create(outputFile))
-                {
-                    PeWriter.WritePeToStream(assembly, host, stream);
-                }
-            }
-
-            using (var host = new PeReader.DefaultHost())
-            {
-                var unit = host.LoadUnitFrom(outputFile);
-                var assembly = unit as IAssembly;
-
-                Assembly mutable = new MetadataDeepCopier(host).Copy(assembly);
-
-                new PInvokeInteropHelpersAssemblyReferenceRemover(host).RewriteChildren(mutable);
-
+                
                 using (var stream = File.Create(outputFile))
                 {
                     PeWriter.WritePeToStream(mutable, host, stream);
@@ -132,47 +115,7 @@
                 rootUnitNamespace.Members.Add(typeDef);
                 module.AllTypes.Add(typeDef);
 
-                /*
-                var stream = System.Reflection.IntrospectionExtensions.GetTypeInfo(typeof(Program)).Assembly.GetManifestResourceStream("PInvokeRewriter.PInvokeInteropHelpers.dll") as UnmanagedMemoryStream;
-                using (var streamHost = new PeStreamHost(stream))
-                {
-                    var unit = streamHost.LoadUnitFrom(string.Empty) as IAssembly;
-                    if (unit != null)
-                    {
-                        var x = unit.GetAllTypes().Skip(1);
-
-                        foreach (var t in x)
-                        {
-                            module.AllTypes.Add(t);
-                            rootUnitNamespace.Members.Add((INamespaceMember)t);
-                        }
-                    }
-                }*/
-
                 base.RewriteChildren(module);
-            }
-        }
-
-        private sealed class PInvokeInteropHelpersAssemblyReferenceRemover : MetadataRewriter
-        {
-            public PInvokeInteropHelpersAssemblyReferenceRemover(IMetadataHost host, bool copyAndRewriteImmutableReferences = true)
-                : base(host, copyAndRewriteImmutableReferences)
-            {
-            }
-
-            public override void RewriteChildren(Assembly assembly)
-            {
-                var assemblyReferences = assembly.AssemblyReferences;
-
-                for (int i = 0; i < assemblyReferences.Count; ++i)
-                {
-                    if (assemblyReferences[i].Name.Value.Equals("PInvokeInteropHelpers"))
-                    {
-                        assemblyReferences.RemoveAt(i);
-                    }
-                }
-
-                base.RewriteChildren(assembly);
             }
         }
     }
