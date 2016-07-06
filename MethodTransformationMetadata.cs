@@ -1,4 +1,4 @@
-﻿namespace PInvokeRewriter
+﻿namespace PInvokeCompiler
 {
     using Microsoft.Cci;
 
@@ -10,7 +10,7 @@
             this.FunctionPointer = functionPointerDefinition;
             this.NativeMethod = nativeMethodDefinition;
         }
-        
+
         public IMethodDefinition NativeMethod { get; }
 
         public IMethodDefinition InitializeMethod { get; }

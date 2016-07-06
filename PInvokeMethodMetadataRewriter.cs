@@ -1,13 +1,12 @@
-﻿using System.Linq;
-
-namespace PInvokeRewriter
+﻿namespace PInvokeCompiler
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Runtime.InteropServices;
     using Microsoft.Cci;
     using Microsoft.Cci.MutableCodeModel;
-    
+
     internal sealed class PInvokeMethodMetadataRewriter : MetadataRewriter
     {
         private readonly IMethodTransformationMetadataProvider metadataProvider;
@@ -79,7 +78,7 @@ namespace PInvokeRewriter
             }
 
             var interopServicesAssembly = first ?? assemblyReferences.First(t => t.Name.Value.Equals("mscorlib"));
-            
+
             this.getFunctionPointerForDelegate = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = nameTable.GetNameFor("GetFunctionPointerForDelegate"),
@@ -88,7 +87,7 @@ namespace PInvokeRewriter
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = platformType.SystemDelegate } }
             };
         }
-        
+
         public override void RewriteChildren(MethodDefinition method)
         {
             if (method.IsPlatformInvoke)
@@ -97,86 +96,6 @@ namespace PInvokeRewriter
             }
 
             base.RewriteChildren(method);
-        }
-        
-        private void TransformPInvokeMethodDefinitionToImplementedMethodDefinition(MethodDefinition methodDefinition)
-        {
-            methodDefinition.IsPlatformInvoke = false;
-            methodDefinition.IsExternal = false;
-            methodDefinition.PreserveSignature = false;
-
-            var ilGenerator = new ILGenerator(this.host, methodDefinition);
-            var label = new ILGeneratorLabel();
-            var transformationMetadata = this.metadataProvider.Retrieve(methodDefinition);
-            
-            var fieldDef = transformationMetadata.FunctionPointer;
-            var locals = new List<ILocalDefinition>();
-
-            ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);
-            ilGenerator.Emit(OperationCode.Ldsfld, this.intPtrZero);
-            ilGenerator.Emit(OperationCode.Call, this.intPtrOpEquality);
-            ilGenerator.Emit(OperationCode.Brfalse_S, label);
-            ilGenerator.Emit(OperationCode.Call, transformationMetadata.InitializeMethod);
-            ilGenerator.Emit(OperationCode.Stsfld, fieldDef);
-            ilGenerator.MarkLabel(label);
-            this.LoadArguments(locals, ilGenerator, methodDefinition.ParameterCount, i => methodDefinition.Parameters[i]);
-            ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);
-            ilGenerator.Emit(OperationCode.Call, transformationMetadata.NativeMethod);
-            ilGenerator.Emit(OperationCode.Ret);
-            
-            var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, true, (ushort)((methodDefinition.ParameterCount + 1) * 2), methodDefinition, locals, new List<ITypeDefinition>());
-            methodDefinition.Body = ilMethodBody;
-        }
-
-        private void LoadArguments(List<ILocalDefinition> locals, ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
-        {
-            for (int i = 0; i < argumentCount; ++i)
-            {
-                var parameter = parameterProvider(i);
-
-                switch (i)
-                {
-                    case 0:
-                        ilGenerator.Emit(OperationCode.Ldarg_0);
-                        break;
-                    case 1:
-                        ilGenerator.Emit(OperationCode.Ldarg_1);
-                        break;
-                    case 2:
-                        ilGenerator.Emit(OperationCode.Ldarg_2);
-                        break;
-                    case 3:
-                        ilGenerator.Emit(OperationCode.Ldarg_3);
-                        break;
-                    default:
-                        ilGenerator.Emit(i <= byte.MaxValue ? OperationCode.Ldarg_S : OperationCode.Ldarg, parameter);
-                        break;
-                }
-                
-                if (parameter.Type is IArrayType)
-                {
-                    EmitArrayMarshalling(locals, ilGenerator, (IArrayType)parameter.Type);
-                }
-                else if (parameter.IsByReference)
-                {
-                    EmitByRefMarshalling(locals, ilGenerator, parameter.Type);
-                }
-                else if (parameter.Type.ResolvedType.IsDelegate)
-                {
-                    ilGenerator.Emit(OperationCode.Call, this.getFunctionPointerForDelegate);
-                }
-                else if (TypeHelper.TypesAreEquivalent(parameter.Type, this.host.PlatformType.SystemString))
-                {
-                    if (parameter.MarshallingInformation.UnmanagedType == UnmanagedType.LPWStr)
-                    {
-                        EmitUnicodeStringMarshalling(locals, ilGenerator, this.intPtrSize, this.host.PlatformType.SystemString);
-                    }
-                    else
-                    {
-                        EmitAnsiStringMarshalling(locals, ilGenerator, parameter, this.getLength, this.getChars, this.host.PlatformType);
-                    }
-                }
-            }
         }
 
         private static void EmitUnicodeStringMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IMethodReference intPtrSize, ITypeReference stringType)
@@ -268,19 +187,16 @@ namespace PInvokeRewriter
 
         private static void EmitStringReturnMarshalling(ILGenerator ilGenerator)
         {
-
         }
 
         private static void EmitBooleanMarshalling(ILGenerator ilGenerator)
         {
-
         }
 
         private static void EmitBooleanReturnMarshalling(ILGenerator ilGenerator)
         {
-
         }
-        
+
         private static void EmitArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType)
         {
             var nullCaseLabel = new ILGeneratorLabel();
@@ -345,6 +261,86 @@ namespace PInvokeRewriter
             }
 
             return new Microsoft.Cci.Immutable.NamespaceTypeReference(host, ns, host.NameTable.GetNameFor(names[names.Length - 1]), 0, isEnum: false, isValueType: false);
+        }
+
+        private void TransformPInvokeMethodDefinitionToImplementedMethodDefinition(MethodDefinition methodDefinition)
+        {
+            methodDefinition.IsPlatformInvoke = false;
+            methodDefinition.IsExternal = false;
+            methodDefinition.PreserveSignature = false;
+
+            var ilGenerator = new ILGenerator(this.host, methodDefinition);
+            var label = new ILGeneratorLabel();
+            var transformationMetadata = this.metadataProvider.Retrieve(methodDefinition);
+
+            var fieldDef = transformationMetadata.FunctionPointer;
+            var locals = new List<ILocalDefinition>();
+
+            ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);
+            ilGenerator.Emit(OperationCode.Ldsfld, this.intPtrZero);
+            ilGenerator.Emit(OperationCode.Call, this.intPtrOpEquality);
+            ilGenerator.Emit(OperationCode.Brfalse_S, label);
+            ilGenerator.Emit(OperationCode.Call, transformationMetadata.InitializeMethod);
+            ilGenerator.Emit(OperationCode.Stsfld, fieldDef);
+            ilGenerator.MarkLabel(label);
+            this.LoadArguments(locals, ilGenerator, methodDefinition.ParameterCount, i => methodDefinition.Parameters[i]);
+            ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);
+            ilGenerator.Emit(OperationCode.Call, transformationMetadata.NativeMethod);
+            ilGenerator.Emit(OperationCode.Ret);
+
+            var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, true, (ushort)((methodDefinition.ParameterCount + 1) * 2), methodDefinition, locals, new List<ITypeDefinition>());
+            methodDefinition.Body = ilMethodBody;
+        }
+
+        private void LoadArguments(List<ILocalDefinition> locals, ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
+        {
+            for (int i = 0; i < argumentCount; ++i)
+            {
+                var parameter = parameterProvider(i);
+
+                switch (i)
+                {
+                    case 0:
+                        ilGenerator.Emit(OperationCode.Ldarg_0);
+                        break;
+                    case 1:
+                        ilGenerator.Emit(OperationCode.Ldarg_1);
+                        break;
+                    case 2:
+                        ilGenerator.Emit(OperationCode.Ldarg_2);
+                        break;
+                    case 3:
+                        ilGenerator.Emit(OperationCode.Ldarg_3);
+                        break;
+                    default:
+                        ilGenerator.Emit(i <= byte.MaxValue ? OperationCode.Ldarg_S : OperationCode.Ldarg, parameter);
+                        break;
+                }
+
+                if (parameter.Type is IArrayType)
+                {
+                    EmitArrayMarshalling(locals, ilGenerator, (IArrayType)parameter.Type);
+                }
+                else if (parameter.IsByReference)
+                {
+                    EmitByRefMarshalling(locals, ilGenerator, parameter.Type);
+                }
+                else if (parameter.Type.ResolvedType.IsDelegate)
+                {
+                    ilGenerator.Emit(OperationCode.Call, this.getFunctionPointerForDelegate);
+                }
+                else if (TypeHelper.TypesAreEquivalent(parameter.Type, this.host.PlatformType.SystemString))
+                {
+                    if (parameter.MarshallingInformation.UnmanagedType == UnmanagedType.LPWStr)
+                    {
+                        EmitUnicodeStringMarshalling(locals, ilGenerator, this.intPtrSize, this.host.PlatformType.SystemString);
+                    }
+                    else
+                    {
+                        EmitAnsiStringMarshalling(locals, ilGenerator, parameter, this.getLength, this.getChars, this.host.PlatformType);
+                    }
+                }
+            }
         }
     }
 }

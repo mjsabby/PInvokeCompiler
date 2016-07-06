@@ -1,4 +1,4 @@
-﻿namespace PInvokeRewriter
+﻿namespace PInvokeCompiler
 {
     using System;
     using System.Collections.Generic;
@@ -20,41 +20,36 @@
 
         private readonly IMethodReference getProcAddress;
 
-        public MethodTransformationMetadataRewriter(IEnumerable<IAssemblyReference> asmRefs, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IPInvokeMethodsProvider methodsProvider)
+        public MethodTransformationMetadataRewriter(IMethodReference loadLibrary, IMethodReference getProcAddress, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IPInvokeMethodsProvider methodsProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
             this.platformType = platformType;
             this.nameTable = nameTable;
             this.methodsProvider = methodsProvider;
-
-            var asmRef = asmRefs.ToList()[2];
-
-            var type = CreateTypeReference(host, asmRef, "PInvokeInteropHelpers");
-
-            this.loadLibrary = new Microsoft.Cci.MutableCodeModel.MethodReference
-            {
-                Name = this.nameTable.GetNameFor("LoadLibrary"),
-                ContainingType = type,
-                Type = this.platformType.SystemIntPtr,
-                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = this.platformType.SystemString } }
-            };
-
-            this.getProcAddress = new Microsoft.Cci.MutableCodeModel.MethodReference
-            {
-                Name = this.nameTable.GetNameFor("GetProcAddress"),
-                ContainingType = type,
-                Type = this.platformType.SystemIntPtr,
-                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = this.platformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = this.platformType.SystemString } }
-            };
+            this.loadLibrary = loadLibrary;
+            this.getProcAddress = getProcAddress;
         }
-        
+
         public override void RewriteChildren(NamedTypeDefinition typeDefinition)
         {
-            var methodDefinitions = this.methodsProvider.Retrieve(typeDefinition);
+            var dict = new Dictionary<string, IFieldDefinition>();
+            var moduleRefs = this.methodsProvider.RetrieveModuleRefs(typeDefinition);
+
+            foreach (var moduleRef in moduleRefs)
+            {
+                var fieldDef = this.CreateFunctionPointerField(typeDefinition, "pl_" + moduleRef);
+                var loadLibMethodDef = this.CreateLoadLibraryMethod(typeDefinition, moduleRef);
+
+                typeDefinition.Fields.Add(fieldDef);
+                typeDefinition.Methods.Add(loadLibMethodDef);
+                dict.Add(moduleRef, fieldDef);
+            }
+
+            var methodDefinitions = this.methodsProvider.RetrieveMethodDefinitions(typeDefinition);
             foreach (var methodDefinition in methodDefinitions)
             {
-                var fieldDef = this.CreateFunctionPointerField(typeDefinition, methodDefinition);
-                var initMethodDef = this.CreateInitMethod(methodDefinition, methodDefinition.PlatformInvokeData.ImportModule.Name.Value, methodDefinition.PlatformInvokeData.ImportName.Value);
+                var fieldDef = this.CreateFunctionPointerField(typeDefinition, "p_" + methodDefinition.Name.Value);
+                var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule.Name.Value], methodDefinition.PlatformInvokeData.ImportName.Value);
                 var nativeMethodDef = this.CreateNativeMethod(methodDefinition);
 
                 typeDefinition.Fields.Add(fieldDef);
@@ -72,7 +67,91 @@
             return this.methodTransformationTable[methodDefinition];
         }
 
-        private IFieldDefinition CreateFunctionPointerField(INamedTypeDefinition typeDefinition, IMethodDefinition methodDefinition)
+        private static MethodDefinition CreateRegularMethodDefinitionFromPInvokeMethodDefinition(IMethodDefinition methodDefinition, ITypeReference intPtrType)
+        {
+            var nativeMethodDef = new MethodDefinition
+            {
+                Type = methodDefinition.Type,
+                Name = methodDefinition.Name,
+                ContainingTypeDefinition = methodDefinition.ContainingTypeDefinition,
+                IsAggressivelyInlined = true,
+                IsStatic = true,
+                Visibility = TypeMemberVisibility.Private,
+                AcceptsExtraArguments = methodDefinition.AcceptsExtraArguments,
+                Parameters = new List<IParameterDefinition>()
+            };
+
+            ushort j = 0;
+            foreach (var parameter in methodDefinition.Parameters)
+            {
+                var paramDef = new ParameterDefinition { Type = parameter.Type, Index = j++, Name = parameter.Name };
+                if (!IsBlittableType(parameter.Type) || parameter.IsByReference)
+                {
+                    paramDef.Type = intPtrType;
+                }
+
+                nativeMethodDef.Parameters.Add(paramDef);
+            }
+
+            return nativeMethodDef;
+        }
+
+        private static void LoadArguments(ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
+        {
+            for (int i = 0; i < argumentCount; ++i)
+            {
+                switch (i)
+                {
+                    case 0:
+                        ilGenerator.Emit(OperationCode.Ldarg_0);
+                        break;
+                    case 1:
+                        ilGenerator.Emit(OperationCode.Ldarg_1);
+                        break;
+                    case 2:
+                        ilGenerator.Emit(OperationCode.Ldarg_2);
+                        break;
+                    case 3:
+                        ilGenerator.Emit(OperationCode.Ldarg_3);
+                        break;
+                    default:
+                        ilGenerator.Emit(i <= byte.MaxValue ? OperationCode.Ldarg_S : OperationCode.Ldarg, parameterProvider(i));
+                        break;
+                }
+            }
+        }
+
+        private static bool IsBlittableType(ITypeReference typeRef)
+        {
+            var typeCode = typeRef.TypeCode;
+
+            if (typeRef.IsValueType)
+            {
+                if (typeCode == PrimitiveTypeCode.Char || typeCode == PrimitiveTypeCode.Boolean)
+                {
+                    return false;
+                }
+
+                foreach (var fieldInfo in typeRef.ResolvedType.Fields)
+                {
+                    if (fieldInfo.IsStatic)
+                    {
+                        continue;
+                    }
+
+                    if (fieldInfo.IsMarshalledExplicitly || !IsBlittableType(fieldInfo.Type))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            return typeCode == PrimitiveTypeCode.Pointer;
+        }
+
+        private IFieldDefinition CreateFunctionPointerField(INamedTypeDefinition typeDefinition, string fieldName)
         {
             return new FieldDefinition
             {
@@ -80,11 +159,36 @@
                 Visibility = TypeMemberVisibility.Private,
                 Type = this.platformType.SystemIntPtr,
                 ContainingTypeDefinition = typeDefinition,
-                Name = this.nameTable.GetNameFor("p_" + methodDefinition.Name.Value)
+                Name = this.nameTable.GetNameFor(fieldName)
             };
         }
 
-        private IMethodDefinition CreateInitMethod(IMethodDefinition incomingMethodDefinition, string moduleRef, string entryPoint)
+        private IMethodDefinition CreateLoadLibraryMethod(ITypeDefinition typeDefinition, string moduleRef)
+        {
+            var methodDefinition = new MethodDefinition
+            {
+                IsStatic = true,
+                Type = this.platformType.SystemIntPtr,
+                ContainingTypeDefinition = typeDefinition,
+                Name = this.nameTable.GetNameFor("LoadLibrary" + moduleRef),
+                IsNeverInlined = true,
+                Visibility = TypeMemberVisibility.Public,
+                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = this.platformType.SystemString } }
+            };
+
+            var ilGenerator = new ILGenerator(this.host, methodDefinition);
+
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Call, this.loadLibrary);
+            ilGenerator.Emit(OperationCode.Ret);
+
+            var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, false, 2, methodDefinition, Enumerable.Empty<ILocalDefinition>(), Enumerable.Empty<ITypeDefinition>());
+            methodDefinition.Body = ilMethodBody;
+
+            return methodDefinition;
+        }
+
+        private IMethodDefinition CreateInitMethod(IMethodDefinition incomingMethodDefinition, IFieldReference loadLibraryModule, string entryPoint)
         {
             var methodDefinition = new MethodDefinition
             {
@@ -98,8 +202,7 @@
 
             var ilGenerator = new ILGenerator(this.host, methodDefinition);
 
-            ilGenerator.Emit(OperationCode.Ldstr, moduleRef);
-            ilGenerator.Emit(OperationCode.Call, this.loadLibrary);
+            ilGenerator.Emit(OperationCode.Ldsfld, loadLibraryModule);
             ilGenerator.Emit(OperationCode.Ldstr, entryPoint);
             ilGenerator.Emit(OperationCode.Call, this.getProcAddress);
             ilGenerator.Emit(OperationCode.Ret);
@@ -162,102 +265,6 @@
             nativeMethodDef.Body = ilMethodBody;
 
             return nativeMethodDef;
-        }
-
-        private static MethodDefinition CreateRegularMethodDefinitionFromPInvokeMethodDefinition(IMethodDefinition methodDefinition, ITypeReference intPtrType)
-        {
-            var nativeMethodDef = new MethodDefinition
-            {
-                Type = methodDefinition.Type,
-                Name = methodDefinition.Name,
-                ContainingTypeDefinition = methodDefinition.ContainingTypeDefinition,
-                IsAggressivelyInlined = true,
-                IsStatic = true,
-                Visibility = TypeMemberVisibility.Private,
-                AcceptsExtraArguments = methodDefinition.AcceptsExtraArguments,
-                Parameters = new List<IParameterDefinition>()
-            };
-
-            ushort j = 0;
-            foreach (var parameter in methodDefinition.Parameters)
-            {
-                var paramDef = new ParameterDefinition { Type = parameter.Type, Index = j++, Name = parameter.Name };
-                if (!IsBlittableType(parameter.Type) || parameter.IsByReference)
-                {
-                    paramDef.Type = intPtrType;
-                }
-
-                nativeMethodDef.Parameters.Add(paramDef);
-            }
-
-            return nativeMethodDef;
-        }
-        
-        private static void LoadArguments(ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
-        {
-            for (int i = 0; i < argumentCount; ++i)
-            {
-                switch (i)
-                {
-                    case 0:
-                        ilGenerator.Emit(OperationCode.Ldarg_0);
-                        break;
-                    case 1:
-                        ilGenerator.Emit(OperationCode.Ldarg_1);
-                        break;
-                    case 2:
-                        ilGenerator.Emit(OperationCode.Ldarg_2);
-                        break;
-                    case 3:
-                        ilGenerator.Emit(OperationCode.Ldarg_3);
-                        break;
-                    default:
-                        ilGenerator.Emit(i <= byte.MaxValue ? OperationCode.Ldarg_S : OperationCode.Ldarg, parameterProvider(i));
-                        break;
-                }
-            }
-        }
-
-        private static bool IsBlittableType(ITypeReference typeRef)
-        {
-            var typeCode = typeRef.TypeCode;
-
-            if (typeRef.IsValueType)
-            {
-                if (typeCode == PrimitiveTypeCode.Char || typeCode == PrimitiveTypeCode.Boolean)
-                {
-                    return false;
-                }
-                
-                foreach (var fieldInfo in typeRef.ResolvedType.Fields)
-                {
-                    if (fieldInfo.IsStatic)
-                    {
-                        continue;
-                    }
-
-                    if (fieldInfo.IsMarshalledExplicitly || !IsBlittableType(fieldInfo.Type))
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-
-            return typeCode == PrimitiveTypeCode.Pointer;
-        }
-
-        private static INamespaceTypeReference CreateTypeReference(IMetadataHost host, IAssemblyReference assemblyReference, string typeName)
-        {
-            IUnitNamespaceReference ns = new Microsoft.Cci.Immutable.RootUnitNamespaceReference(assemblyReference);
-            var names = typeName.Split('.');
-            for (int i = 0, n = names.Length - 1; i < n; ++i)
-            {
-                ns = new Microsoft.Cci.Immutable.NestedUnitNamespaceReference(ns, host.NameTable.GetNameFor(names[i]));
-            }
-
-            return new Microsoft.Cci.Immutable.NamespaceTypeReference(host, ns, host.NameTable.GetNameFor(names[names.Length - 1]), 0, isEnum: false, isValueType: false);
         }
     }
 }

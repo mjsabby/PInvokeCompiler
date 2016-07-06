@@ -1,169 +1,178 @@
-﻿using System.Collections.Generic;
-
-namespace PInvokeRewriter
+﻿namespace PInvokeCompiler
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
-    using System.Linq;
     using Microsoft.Cci;
     using Microsoft.Cci.MutableCodeModel;
-    
+
     internal sealed class Program
     {
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
+            if (args.Length != 2)
+            {
+                Console.WriteLine("Usage: PInvokeCompiler Input.dll Output.dll");
+                return;
+            }
+
+            var inputFile = args[0];
+            var outputFile = args[1];
+
             using (var host = new PeReader.DefaultHost())
             {
-                var unit = host.LoadUnitFrom(args[0]);
+                var unit = host.LoadUnitFrom(inputFile);
                 var assembly = unit as IAssembly;
-                
+
                 Assembly mutable = new MetadataDeepCopier(host).Copy(assembly);
 
-                var xx = new MyRewriter(host);
-                xx.RewriteChildren(mutable);
-                
-
+                var pinvokeHelpersTypesAdder = new PInvokeInteropHelpersTypeAdder(host);
+                pinvokeHelpersTypesAdder.RewriteChildren(mutable);
 
                 var pinvokeMethodMetadataTraverser = new PInvokeMethodMetadataTraverser();
                 pinvokeMethodMetadataTraverser.TraverseChildren(mutable);
 
-                var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(mutable.AssemblyReferences, host, host.PlatformType, host.NameTable, pinvokeMethodMetadataTraverser);
+                var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(pinvokeHelpersTypesAdder.LoadLibrary, pinvokeHelpersTypesAdder.GetProcAddress, host, host.PlatformType, host.NameTable, pinvokeMethodMetadataTraverser);
                 methodTransformationMetadataRewriter.RewriteChildren(mutable);
 
                 var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(mutable.AssemblyReferences, host, host.PlatformType, host.NameTable, methodTransformationMetadataRewriter);
                 pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
 
                 assembly = mutable;
-                
-                using (var outputFile = File.Create(@"C:\users\mukul\desktop\foo.dll"))
+
+                using (var stream = File.Create(outputFile))
                 {
-                    PeWriter.WritePeToStream(assembly, host, outputFile);
+                    PeWriter.WritePeToStream(assembly, host, stream);
+                }
+            }
+
+            using (var host = new PeReader.DefaultHost())
+            {
+                var unit = host.LoadUnitFrom(outputFile);
+                var assembly = unit as IAssembly;
+
+                Assembly mutable = new MetadataDeepCopier(host).Copy(assembly);
+
+                new PInvokeInteropHelpersAssemblyReferenceRemover(host).RewriteChildren(mutable);
+
+                using (var stream = File.Create(outputFile))
+                {
+                    PeWriter.WritePeToStream(mutable, host, stream);
                 }
             }
         }
 
-        internal class MyRewriter : MetadataRewriter
+        private sealed class PInvokeInteropHelpersTypeAdder : MetadataRewriter
         {
-            public MyRewriter(IMetadataHost host, bool copyAndRewriteImmutableReferences = false) : base(host, copyAndRewriteImmutableReferences)
+            public PInvokeInteropHelpersTypeAdder(IMetadataHost host, bool copyAndRewriteImmutableReferences = false)
+                : base(host, copyAndRewriteImmutableReferences)
             {
             }
 
-            public override List<IModule> Rewrite(List<IModule> modules)
+            public IMethodDefinition LoadLibrary { get; private set; }
+
+            public IMethodDefinition GetProcAddress { get; private set; }
+
+            public override void RewriteChildren(Assembly module)
             {
-                return base.Rewrite(modules);
-            }
+                var typeDef = new NamespaceTypeDefinition();
 
-            public override void RewriteChildren(Unit unit)
-            {
-                base.RewriteChildren(unit);
-            }
-            
-            public override void RewriteChildren(Module module)
-            {
-
-
-                var selfAssembly = typeof(Program).Assembly;
-                var stream = selfAssembly.GetManifestResourceStream("PInvokeRewriter.PInvokeInteropHelpers2.dll") as UnmanagedMemoryStream;
-
-                var host2 = new MyHost(stream);
-                var unit2 = host2.LoadUnitFrom(string.Empty) as IAssembly;
-
-                var types = unit2.GetAllTypes();
-                foreach (var type in types)
+                this.LoadLibrary = new MethodDefinition
                 {
-                    //type.
-                }
+                    ContainingTypeDefinition = typeDef,
+                    Type = this.host.PlatformType.SystemIntPtr,
+                    Parameters = new List<IParameterDefinition>
+                    {
+                        new ParameterDefinition { Type = this.host.PlatformType.SystemString }
+                    },
+                    IsStatic = true,
+                    Name = this.host.NameTable.GetNameFor("LoadLibrary"),
+                    Visibility = TypeMemberVisibility.Assembly
+                };
 
+                var freeLibrary = new MethodDefinition
+                {
+                    ContainingTypeDefinition = typeDef,
+                    Type = this.host.PlatformType.SystemInt32,
+                    Parameters = new List<IParameterDefinition>
+                    {
+                        new ParameterDefinition { Type = this.host.PlatformType.SystemIntPtr }
+                    },
+                    IsStatic = true,
+                    Name = this.host.NameTable.GetNameFor("FreeLibrary"),
+                    Visibility = TypeMemberVisibility.Assembly
+                };
 
-                //module.AllTypes.AddRange(unit2.GetAllTypes().Skip(1));
+                this.GetProcAddress = new MethodDefinition
+                {
+                    ContainingTypeDefinition = typeDef,
+                    Type = this.host.PlatformType.SystemIntPtr,
+                    Parameters = new List<IParameterDefinition>
+                    {
+                        new ParameterDefinition { Type = this.host.PlatformType.SystemIntPtr },
+                        new ParameterDefinition { Type = this.host.PlatformType.SystemString }
+                    },
+                    IsStatic = true,
+                    Name = this.host.NameTable.GetNameFor("GetProcAddress"),
+                    Visibility = TypeMemberVisibility.Assembly
+                };
+
+                typeDef.Methods = new List<IMethodDefinition> { this.LoadLibrary, freeLibrary, this.GetProcAddress };
+
+                var rootUnitNamespace = new RootUnitNamespace();
+                rootUnitNamespace.Members.AddRange(module.UnitNamespaceRoot.Members);
+                module.UnitNamespaceRoot = rootUnitNamespace;
+                rootUnitNamespace.Unit = module;
+
+                typeDef.ContainingUnitNamespace = rootUnitNamespace;
+                typeDef.IsPublic = true;
+                typeDef.BaseClasses = new List<ITypeReference> { this.host.PlatformType.SystemObject };
+                typeDef.Name = this.host.NameTable.GetNameFor("PInvokeInteropHelpers");
+
+                rootUnitNamespace.Members.Add(typeDef);
+                module.AllTypes.Add(typeDef);
+
+                /*
+                var stream = System.Reflection.IntrospectionExtensions.GetTypeInfo(typeof(Program)).Assembly.GetManifestResourceStream("PInvokeRewriter.PInvokeInteropHelpers.dll") as UnmanagedMemoryStream;
+                using (var streamHost = new PeStreamHost(stream))
+                {
+                    var unit = streamHost.LoadUnitFrom(string.Empty) as IAssembly;
+                    if (unit != null)
+                    {
+                        var x = unit.GetAllTypes().Skip(1);
+
+                        foreach (var t in x)
+                        {
+                            module.AllTypes.Add(t);
+                            rootUnitNamespace.Members.Add((INamespaceMember)t);
+                        }
+                    }
+                }*/
 
                 base.RewriteChildren(module);
             }
-            
-            public override List<IAssemblyReference> Rewrite(List<IAssemblyReference> assemblyReferences)
+        }
+
+        private sealed class PInvokeInteropHelpersAssemblyReferenceRemover : MetadataRewriter
+        {
+            public PInvokeInteropHelpersAssemblyReferenceRemover(IMetadataHost host, bool copyAndRewriteImmutableReferences = true)
+                : base(host, copyAndRewriteImmutableReferences)
             {
-                return base.Rewrite(assemblyReferences);
             }
 
             public override void RewriteChildren(Assembly assembly)
             {
+                var assemblyReferences = assembly.AssemblyReferences;
 
-                var asmRef = new AssemblyReference();
-                asmRef.AssemblyIdentity = new AssemblyIdentity(this.host.NameTable.GetNameFor("PInvokeInteropHelpers"), "neutral", new Version(1, 0, 0, 0), new List<byte>(), @"C:\Users\Mukul\Desktop\PInvokeInteropHelpers\bin\Debug\PInvokeInteropHelpers.dll");
-                asmRef.Name = this.host.NameTable.GetNameFor("PInvokeInteropHelpers");
+                for (int i = 0; i < assemblyReferences.Count; ++i)
+                {
+                    if (assemblyReferences[i].Name.Value.Equals("PInvokeInteropHelpers"))
+                    {
+                        assemblyReferences.RemoveAt(i);
+                    }
+                }
 
-
-                assembly.AssemblyReferences.Add(asmRef);
                 base.RewriteChildren(assembly);
-            }
-        }
-
-        private sealed class MyHost : PeReader.DefaultHost
-        {
-            private readonly BinaryDocumentMemoryBlock block;
-
-            private readonly InMemoryBinaryDocument document;
-
-            public MyHost(UnmanagedMemoryStream stream)
-            {
-                this.document = new InMemoryBinaryDocument((uint)stream.Length);
-                this.block = new BinaryDocumentMemoryBlock(stream, this.document);
-            }
-
-            public override IUnit LoadUnitFrom(string location)
-            {
-                return this.peReader.OpenModule(this.document);
-            }
-
-            public override IBinaryDocumentMemoryBlock OpenBinaryDocument(IBinaryDocument sourceDocument)
-            {
-                return this.block;
-            }
-
-            private sealed class InMemoryBinaryDocument : IBinaryDocument
-            {
-                public InMemoryBinaryDocument(uint length)
-                {
-                    this.Location = string.Empty;
-                    this.Length = length;
-                }
-
-                public string Location { get; }
-
-                public uint Length { get; }
-
-                public IName Name
-                {
-                    get { throw new NotImplementedException(); }
-                }
-            }
-
-            private sealed class BinaryDocumentMemoryBlock : IBinaryDocumentMemoryBlock
-            {
-                private readonly UnmanagedMemoryStream stream;
-
-                private readonly InMemoryBinaryDocument binaryDocument;
-
-                public BinaryDocumentMemoryBlock(UnmanagedMemoryStream stream, InMemoryBinaryDocument binaryDocument)
-                {
-                    this.stream = stream;
-                    this.binaryDocument = binaryDocument;
-                }
-
-                public IBinaryDocument BinaryDocument
-                {
-                    get { return this.binaryDocument; }
-                }
-
-                public unsafe byte* Pointer
-                {
-                    get { return this.stream.PositionPointer; }
-                }
-
-                public uint Length
-                {
-                    get { return (uint)this.stream.Length; }
-                }
             }
         }
     }

@@ -1,10 +1,12 @@
-﻿namespace PInvokeRewriter
+﻿namespace PInvokeCompiler
 {
     using System.Collections.Generic;
     using Microsoft.Cci;
 
     internal interface IPInvokeMethodsProvider
     {
-        IEnumerable<IMethodDefinition> Retrieve(ITypeDefinition typeDefinition);
+        IEnumerable<IMethodDefinition> RetrieveMethodDefinitions(ITypeDefinition typeDefinition);
+
+        IEnumerable<string> RetrieveModuleRefs(ITypeDefinition typeDefinition);
     }
 }

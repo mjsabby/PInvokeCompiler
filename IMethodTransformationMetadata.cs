@@ -1,4 +1,4 @@
-﻿namespace PInvokeRewriter
+﻿namespace PInvokeCompiler
 {
     using Microsoft.Cci;
 
