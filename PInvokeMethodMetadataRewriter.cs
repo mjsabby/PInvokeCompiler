@@ -2,7 +2,6 @@
 {
     using System;
     using System.Collections.Generic;
-    using System.Linq;
     using System.Runtime.InteropServices;
     using Microsoft.Cci;
     using Microsoft.Cci.MutableCodeModel;
@@ -23,7 +22,7 @@
 
         private readonly Microsoft.Cci.MutableCodeModel.MethodReference getChars;
 
-        public PInvokeMethodMetadataRewriter(IEnumerable<IAssemblyReference> assemblyReferences, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IMethodTransformationMetadataProvider metadataProvider)
+        public PInvokeMethodMetadataRewriter(IAssemblyReference interopServicesAssembly, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IMethodTransformationMetadataProvider metadataProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
             this.metadataProvider = metadataProvider;
@@ -61,23 +60,11 @@
 
             this.intPtrOpEquality = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
-                Name = nameTable.GetNameFor("op_Equality"),
+                Name = nameTable.OpEquality,
                 ContainingType = platformType.SystemIntPtr,
                 Type = platformType.SystemBoolean,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = platformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = platformType.SystemIntPtr } }
             };
-
-            IAssemblyReference first = null;
-            foreach (var t in assemblyReferences)
-            {
-                if (t.Name.Value.Equals("System.Runtime.InteropServices"))
-                {
-                    first = t;
-                    break;
-                }
-            }
-
-            var interopServicesAssembly = first ?? assemblyReferences.First(t => t.Name.Value.Equals("mscorlib"));
 
             this.getFunctionPointerForDelegate = new Microsoft.Cci.MutableCodeModel.MethodReference
             {

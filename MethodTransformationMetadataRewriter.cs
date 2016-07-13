@@ -35,6 +35,11 @@
             var dict = new Dictionary<string, IFieldDefinition>();
             var moduleRefs = this.methodsProvider.RetrieveModuleRefs(typeDefinition);
 
+            if (typeDefinition.Fields == null)
+            {
+                typeDefinition.Fields = new List<IFieldDefinition>();
+            }
+
             foreach (var moduleRef in moduleRefs)
             {
                 var fieldDef = this.CreateFunctionPointerField(typeDefinition, "pl_" + moduleRef);
@@ -51,7 +56,7 @@
                 var fieldDef = this.CreateFunctionPointerField(typeDefinition, "p_" + methodDefinition.Name.Value);
                 var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule.Name.Value], methodDefinition.PlatformInvokeData.ImportName.Value);
                 var nativeMethodDef = this.CreateNativeMethod(methodDefinition);
-
+                
                 typeDefinition.Fields.Add(fieldDef);
                 typeDefinition.Methods.Add(nativeMethodDef);
                 typeDefinition.Methods.Add(initMethodDef);

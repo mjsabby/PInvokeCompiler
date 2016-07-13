@@ -3,6 +3,7 @@
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using Microsoft.Cci;
     using Microsoft.Cci.MutableCodeModel;
 
@@ -34,10 +35,14 @@
 
                 var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(pinvokeHelpersTypesAdder.LoadLibrary, pinvokeHelpersTypesAdder.GetProcAddress, host, pinvokeMethodMetadataTraverser);
                 methodTransformationMetadataRewriter.RewriteChildren(mutable);
-
-                var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(mutable.AssemblyReferences, host, host.PlatformType, host.NameTable, methodTransformationMetadataRewriter);
-                pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
                 
+                var interopServicesAssembly = mutable.AssemblyReferences.FirstOrDefault(t => t.Name.Value.Equals("System.Runtime.InteropServices")) ?? mutable.AssemblyReferences.First(t => t.Name.Value.Equals("mscorlib"));
+                
+                var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(interopServicesAssembly, host, host.PlatformType, host.NameTable, methodTransformationMetadataRewriter);
+                pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
+
+                new PlatformSpecificHelpersTypeAdder(host).RewriteChildren(mutable);
+
                 using (var stream = File.Create(outputFile))
                 {
                     PeWriter.WritePeToStream(mutable, host, stream);
@@ -88,7 +93,7 @@
 
                 this.GetProcAddress = new MethodDefinition
                 {
-                    ContainingTypeDefinition = typeDef,
+                    ContainingTypeDefinition = typeDef,[;]
                     Type = this.host.PlatformType.SystemIntPtr,
                     Parameters = new List<IParameterDefinition>
                     {
@@ -114,6 +119,8 @@
 
                 rootUnitNamespace.Members.Add(typeDef);
                 module.AllTypes.Add(typeDef);
+
+                module.
 
                 base.RewriteChildren(module);
             }
