@@ -293,7 +293,7 @@
 
         private static IMethodDefinition CreateDLClose(IMetadataHost host, INamedTypeDefinition typeDef, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers)
         {
-            return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlclose"), new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Type = host.PlatformType.SystemInt32 } }, host.PlatformType.SystemInt32, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers);
+            return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlclose"), new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Type = host.PlatformType.SystemInt32 } }, host.PlatformType.SystemInt32, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers, generateSecondLoad: false);
         }
 
         private static IMethodDefinition CreateDLSym(IMetadataHost host, INamedTypeDefinition typeDef, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers)
@@ -301,7 +301,7 @@
             return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlsym"), new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Type = host.PlatformType.SystemString } }, host.PlatformType.SystemIntPtr, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers);
         }
 
-        private static IMethodDefinition CreateDLMethod(IMetadataHost host, INamedTypeDefinition typeDef, IName name, List<IParameterDefinition> parameters, ITypeReference returnType, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers)
+        private static IMethodDefinition CreateDLMethod(IMetadataHost host, INamedTypeDefinition typeDef, IName name, List<IParameterDefinition> parameters, ITypeReference returnType, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers, bool generateSecondLoad = true)
         {
             var methodDefinition = new MethodDefinition
             {
@@ -335,9 +335,9 @@
             ilGenerator.Emit(OperationCode.Switch, labels);
             ilGenerator.Emit(OperationCode.Br_S, unknownLabel);
 
-            AddOperatingSystemCase2(ilGenerator, linuxHelpers, linuxLabel);
-            AddOperatingSystemCase2(ilGenerator, darwinHelpers, darwinLabel);
-            AddOperatingSystemCase2(ilGenerator, bsdHelpers, bsdLabel);
+            AddOperatingSystemCase2(ilGenerator, linuxHelpers, linuxLabel, generateSecondLoad);
+            AddOperatingSystemCase2(ilGenerator, darwinHelpers, darwinLabel, generateSecondLoad);
+            AddOperatingSystemCase2(ilGenerator, bsdHelpers, bsdLabel, generateSecondLoad);
 
             ilGenerator.MarkLabel(unknownLabel);
             ilGenerator.Emit(OperationCode.Ldstr, "Platform Not Supported");
@@ -358,11 +358,16 @@
             return methodDefinition;
         }
 
-        private static void AddOperatingSystemCase2(ILGenerator ilGenerator, IMethodReference helper, ILGeneratorLabel label)
+        private static void AddOperatingSystemCase2(ILGenerator ilGenerator, IMethodReference helper, ILGeneratorLabel label, bool generateSecondLoad = true)
         {
             ilGenerator.MarkLabel(label);
             ilGenerator.Emit(OperationCode.Ldarg_0);
-            ilGenerator.Emit(OperationCode.Ldarg_1);
+
+            if (generateSecondLoad)
+            {
+                ilGenerator.Emit(OperationCode.Ldarg_1);
+            }
+            
             ilGenerator.Emit(OperationCode.Call, helper);
             ilGenerator.Emit(OperationCode.Ret);
         }
