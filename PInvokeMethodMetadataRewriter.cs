@@ -22,7 +22,7 @@
 
         private readonly Microsoft.Cci.MutableCodeModel.MethodReference getChars;
 
-        public PInvokeMethodMetadataRewriter(IAssemblyReference interopServicesAssembly, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IMethodTransformationMetadataProvider metadataProvider)
+        public PInvokeMethodMetadataRewriter(ITypeReference marshalClass, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IMethodTransformationMetadataProvider metadataProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
             this.metadataProvider = metadataProvider;
@@ -69,7 +69,7 @@
             this.getFunctionPointerForDelegate = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = nameTable.GetNameFor("GetFunctionPointerForDelegate"),
-                ContainingType = CreateTypeReference(host, interopServicesAssembly, "System.Runtime.InteropServices.Marshal"),
+                ContainingType = marshalClass,
                 Type = platformType.SystemIntPtr,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = platformType.SystemDelegate } }
             };
@@ -236,18 +236,6 @@
             ilGenerator.Emit(OperationCode.Stloc, pinnedLocal);
             ilGenerator.Emit(OperationCode.Ldloc, pinnedLocal);
             ilGenerator.Emit(OperationCode.Conv_I);
-        }
-
-        private static INamespaceTypeReference CreateTypeReference(IMetadataHost host, IAssemblyReference assemblyReference, string typeName)
-        {
-            IUnitNamespaceReference ns = new Microsoft.Cci.Immutable.RootUnitNamespaceReference(assemblyReference);
-            var names = typeName.Split('.');
-            for (int i = 0, n = names.Length - 1; i < n; ++i)
-            {
-                ns = new Microsoft.Cci.Immutable.NestedUnitNamespaceReference(ns, host.NameTable.GetNameFor(names[i]));
-            }
-
-            return new Microsoft.Cci.Immutable.NamespaceTypeReference(host, ns, host.NameTable.GetNameFor(names[names.Length - 1]), 0, isEnum: false, isValueType: false);
         }
 
         private void TransformPInvokeMethodDefinitionToImplementedMethodDefinition(MethodDefinition methodDefinition)
