@@ -35,11 +35,31 @@
             module.UnitNamespaceRoot = rootUnitNamespace;
             rootUnitNamespace.Unit = module;
 
-            var linux = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "LinuxHelpers", "dlopen", "dlclose", "dlsym", "libdl", PInvokeCallingConvention.CDecl);
-            var darwin = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "DarwinHelpers", "dlopen", "dlclose", "dlsym", "libSystem", PInvokeCallingConvention.CDecl);
-            var bsd = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "BSDHelpers", "dlopen", "dlclose", "dlsym", "libc", PInvokeCallingConvention.CDecl);
-            var windows = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "WindowsHelpers", "LoadLibrary", "FreeLibrary", "GetProcAddress", "kernel32", PInvokeCallingConvention.WinApi, isUnix: false);
-            var unix = CreateUnixHelpers(host, rootUnitNamespace, this.marshalClass, linux, darwin, bsd);
+            var libc = new ModuleReference
+            {
+                ModuleIdentity = new ModuleIdentity(host.NameTable.GetNameFor("libc"), "unknown://location")
+            };
+
+            var libdl = new ModuleReference
+            {
+                ModuleIdentity = new ModuleIdentity(host.NameTable.GetNameFor("libdl"), "unknown://location")
+            };
+
+            var libSystem = new ModuleReference
+            {
+                ModuleIdentity = new ModuleIdentity(host.NameTable.GetNameFor("libSystem"), "unknown://location")
+            };
+
+            var kernel32 = new ModuleReference
+            {
+                ModuleIdentity = new ModuleIdentity(host.NameTable.GetNameFor("kernel32"), "unknown://location")
+            };
+
+            var linux = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "LinuxHelpers", "dlopen", "dlclose", "dlsym", libdl, PInvokeCallingConvention.CDecl);
+            var darwin = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "DarwinHelpers", "dlopen", "dlclose", "dlsym", libSystem, PInvokeCallingConvention.CDecl);
+            var bsd = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "BSDHelpers", "dlopen", "dlclose", "dlsym", libc, PInvokeCallingConvention.CDecl);
+            var windows = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "WindowsHelpers", "LoadLibrary", "FreeLibrary", "GetProcAddress", kernel32, PInvokeCallingConvention.WinApi, isUnix: false);
+            var unix = CreateUnixHelpers(host, rootUnitNamespace, this.marshalClass, linux, darwin, bsd, libc);
             var topLevel = CreatePInvokeHelpers(this.host, rootUnitNamespace, this.loadLibrary, this.getProcAddress, this.getOSVersion, this.getPlatform, windows, unix);
 
             typeDefList.Add(unix);
@@ -65,7 +85,7 @@
             string loadLibraryMethodName,
             string freeLibraryMethodName,
             string getProcAddressMethodName,
-            string moduleRef,
+            IModuleReference moduleRef,
             PInvokeCallingConvention callingConvention,
             bool isUnix = true)
         {
@@ -93,7 +113,7 @@
             return typeDef;
         }
 
-        private static MethodDefinition CreateLoadLibraryMethod(IMetadataHost host, INamedTypeDefinition typeDef, string moduleRefName, string loadLibraryMethodName, PInvokeCallingConvention callingConvention)
+        private static MethodDefinition CreateLoadLibraryMethod(IMetadataHost host, INamedTypeDefinition typeDef, IModuleReference moduleRef, string loadLibraryMethodName, PInvokeCallingConvention callingConvention)
         {
             return CreatePInvokeMethod(
                 host,
@@ -103,12 +123,12 @@
                     new ParameterDefinition { Type = host.PlatformType.SystemString }
                 },
                 host.PlatformType.SystemIntPtr,
-                moduleRefName,
+                moduleRef,
                 loadLibraryMethodName,
                 callingConvention);
         }
 
-        private static MethodDefinition CreateFreeLibraryMethod(IMetadataHost host, INamedTypeDefinition typeDef, string moduleRefName, string freeLibraryMethodName, PInvokeCallingConvention callingConvention)
+        private static MethodDefinition CreateFreeLibraryMethod(IMetadataHost host, INamedTypeDefinition typeDef, IModuleReference moduleRef, string freeLibraryMethodName, PInvokeCallingConvention callingConvention)
         {
             return CreatePInvokeMethod(
                 host,
@@ -118,12 +138,12 @@
                     new ParameterDefinition { Type = host.PlatformType.SystemIntPtr }
                 },
                 host.PlatformType.SystemInt32,
-                moduleRefName,
+                moduleRef,
                 freeLibraryMethodName,
                 callingConvention);
         }
 
-        private static MethodDefinition CreateGetProcAddressMethod(IMetadataHost host, INamedTypeDefinition typeDef, string moduleRefName, string getProcAddressMethodName, PInvokeCallingConvention callingConvention)
+        private static MethodDefinition CreateGetProcAddressMethod(IMetadataHost host, INamedTypeDefinition typeDef, IModuleReference moduleRef, string getProcAddressMethodName, PInvokeCallingConvention callingConvention)
         {
             return CreatePInvokeMethod(
                 host,
@@ -134,12 +154,12 @@
                     new ParameterDefinition { Type = host.PlatformType.SystemString }
                 },
                 host.PlatformType.SystemIntPtr,
-                moduleRefName,
+                moduleRef,
                 getProcAddressMethodName,
                 callingConvention);
         }
 
-        private static MethodDefinition CreatePInvokeMethod(IMetadataHost host, INamedTypeDefinition typeDef, List<IParameterDefinition> parameters, ITypeReference returnType, string moduleRefName, string methodName, PInvokeCallingConvention callingConvention)
+        private static MethodDefinition CreatePInvokeMethod(IMetadataHost host, INamedTypeDefinition typeDef, List<IParameterDefinition> parameters, ITypeReference returnType, IModuleReference moduleRef, string methodName, PInvokeCallingConvention callingConvention)
         {
             var exportMethodName = host.NameTable.GetNameFor(methodName);
 
@@ -158,7 +178,7 @@
                 PlatformInvokeData = new PlatformInvokeInformation
                 {
                     PInvokeCallingConvention = callingConvention,
-                    ImportModule = new ModuleReference { ModuleIdentity = new ModuleIdentity(host.NameTable.GetNameFor(moduleRefName), "unknown://location") },
+                    ImportModule = moduleRef,
                     ImportName = exportMethodName
                 }
             };
@@ -281,9 +301,9 @@
             return methodDefinition;
         }
 
-        private static IMethodDefinition CreateUnamePInvokeMethod(IMetadataHost host, INamedTypeDefinition typeDef)
+        private static IMethodDefinition CreateUnamePInvokeMethod(IMetadataHost host, INamedTypeDefinition typeDef, IModuleReference libc)
         {
-            return CreatePInvokeMethod(host, typeDef, new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr } }, host.PlatformType.SystemInt32, "libc", "uname", PInvokeCallingConvention.CDecl);
+            return CreatePInvokeMethod(host, typeDef, new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr } }, host.PlatformType.SystemInt32, libc, "uname", PInvokeCallingConvention.CDecl);
         }
 
         private static IMethodDefinition CreateDLOpen(IMetadataHost host, INamedTypeDefinition typeDef, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers)
@@ -372,7 +392,7 @@
             ilGenerator.Emit(OperationCode.Ret);
         }
 
-        private static INamedTypeDefinition CreateUnixHelpers(IMetadataHost host, IRootUnitNamespace rootUnitNamespace, ITypeReference marshalClass, INamedTypeDefinition linux, INamedTypeDefinition darwin, INamedTypeDefinition bsd)
+        private static INamedTypeDefinition CreateUnixHelpers(IMetadataHost host, IRootUnitNamespace rootUnitNamespace, ITypeReference marshalClass, INamedTypeDefinition linux, INamedTypeDefinition darwin, INamedTypeDefinition bsd, IModuleReference libc)
         {
             var typeDef = new NamespaceTypeDefinition();
 
@@ -415,7 +435,7 @@
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemIntPtr } }
             };
             
-            var unamePInvokeMethod = CreateUnamePInvokeMethod(host, typeDef);
+            var unamePInvokeMethod = CreateUnamePInvokeMethod(host, typeDef, libc);
             var unameMethod = CreateUnameMethod(host, typeDef, intPtrZero, allocalHGlobal, ptrToStringAnsi, freeHGlobal, unamePInvokeMethod, intPtrOpInEquality);
 
             var stringOpEquality = new Microsoft.Cci.MutableCodeModel.MethodReference

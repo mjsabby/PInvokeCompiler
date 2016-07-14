@@ -8,7 +8,7 @@
     {
         private readonly Dictionary<ITypeDefinition, List<IMethodDefinition>> typeDefinitionTable = new Dictionary<ITypeDefinition, List<IMethodDefinition>>();
 
-        private readonly Dictionary<ITypeDefinition, HashSet<string>> moduleRefsTable = new Dictionary<ITypeDefinition, HashSet<string>>();
+        private readonly Dictionary<ITypeDefinition, HashSet<IModuleReference>> moduleRefsTable = new Dictionary<ITypeDefinition, HashSet<IModuleReference>>();
 
         public override void TraverseChildren(IMethodDefinition methodDefinition)
         {
@@ -22,15 +22,15 @@
                     this.typeDefinitionTable.Add(typeDefinition, methodDefinitions);
                 }
 
-                HashSet<string> moduleRefs;
+                HashSet<IModuleReference> moduleRefs;
                 if (!this.moduleRefsTable.TryGetValue(typeDefinition, out moduleRefs))
                 {
-                    moduleRefs = new HashSet<string>();
+                    moduleRefs = new HashSet<IModuleReference>();
                     this.moduleRefsTable.Add(typeDefinition, moduleRefs);
                 }
 
                 methodDefinitions.Add(methodDefinition);
-                moduleRefs.Add(methodDefinition.PlatformInvokeData.ImportModule.Name.Value);
+                moduleRefs.Add(methodDefinition.PlatformInvokeData.ImportModule);
             }
         }
 
@@ -40,10 +40,10 @@
             return this.typeDefinitionTable.TryGetValue(typeDefinition, out methods) ? methods : Enumerable.Empty<IMethodDefinition>();
         }
 
-        public IEnumerable<string> RetrieveModuleRefs(ITypeDefinition typeDefinition)
+        public IEnumerable<IModuleReference> RetrieveModuleRefs(ITypeDefinition typeDefinition)
         {
-            HashSet<string> moduleRefs;
-            return this.moduleRefsTable.TryGetValue(typeDefinition, out moduleRefs) ? moduleRefs : Enumerable.Empty<string>();
+            HashSet<IModuleReference> moduleRefs;
+            return this.moduleRefsTable.TryGetValue(typeDefinition, out moduleRefs) ? moduleRefs : Enumerable.Empty<IModuleReference>();
         }
     }
 }

@@ -32,7 +32,7 @@
 
         public override void RewriteChildren(NamedTypeDefinition typeDefinition)
         {
-            var dict = new Dictionary<string, IFieldDefinition>();
+            var dict = new Dictionary<IModuleReference, IFieldDefinition>();
             var moduleRefs = this.methodsProvider.RetrieveModuleRefs(typeDefinition);
 
             if (typeDefinition.Fields == null)
@@ -54,7 +54,7 @@
             foreach (var methodDefinition in methodDefinitions)
             {
                 var fieldDef = this.CreateFunctionPointerField(typeDefinition, "p_" + methodDefinition.Name.Value);
-                var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule.Name.Value], methodDefinition.PlatformInvokeData.ImportName.Value);
+                var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule], methodDefinition.PlatformInvokeData.ImportName.Value);
                 var nativeMethodDef = this.CreateNativeMethod(methodDefinition);
                 
                 typeDefinition.Fields.Add(fieldDef);
@@ -168,14 +168,14 @@
             };
         }
 
-        private IMethodDefinition CreateLoadLibraryMethod(ITypeDefinition typeDefinition, string moduleRef, IFieldReference fieldRef)
+        private IMethodDefinition CreateLoadLibraryMethod(ITypeDefinition typeDefinition, IModuleReference moduleRef, IFieldReference fieldRef)
         {
             var methodDefinition = new MethodDefinition
             {
                 IsStatic = true,
                 Type = this.platformType.SystemVoid,
                 ContainingTypeDefinition = typeDefinition,
-                Name = this.nameTable.GetNameFor("LoadLibrary" + moduleRef),
+                Name = this.nameTable.GetNameFor("LoadLibrary" + moduleRef.Name.Value),
                 IsNeverInlined = true,
                 Visibility = TypeMemberVisibility.Public,
                 Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = this.platformType.SystemString } }

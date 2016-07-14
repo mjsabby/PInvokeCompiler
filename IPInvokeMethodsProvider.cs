@@ -7,6 +7,6 @@
     {
         IEnumerable<IMethodDefinition> RetrieveMethodDefinitions(ITypeDefinition typeDefinition);
 
-        IEnumerable<string> RetrieveModuleRefs(ITypeDefinition typeDefinition);
+        IEnumerable<IModuleReference> RetrieveModuleRefs(ITypeDefinition typeDefinition);
     }
 }
