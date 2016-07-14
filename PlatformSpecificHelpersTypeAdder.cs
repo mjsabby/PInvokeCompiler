@@ -13,12 +13,18 @@
 
         private readonly IMethodReference getPlatform;
 
-        public PlatformSpecificHelpersTypeAdder(IMetadataHost host, ITypeReference marshalClass, IMethodReference getOSVersion, IMethodReference getPlatform, bool copyAndRewriteImmutableReferences = false)
+        private readonly MethodDefinition loadLibrary;
+
+        private readonly MethodDefinition getProcAddress;
+
+        public PlatformSpecificHelpersTypeAdder(IMetadataHost host, ITypeReference marshalClass, IMethodReference getOSVersion, IMethodReference getPlatform, MethodDefinition loadLibrary, MethodDefinition getProcAddress, bool copyAndRewriteImmutableReferences = false)
             : base(host, copyAndRewriteImmutableReferences)
         {
             this.marshalClass = marshalClass;
             this.getOSVersion = getOSVersion;
             this.getPlatform = getPlatform;
+            this.loadLibrary = loadLibrary;
+            this.getProcAddress = getProcAddress;
         }
 
         public override void RewriteChildren(Assembly module)
@@ -32,9 +38,9 @@
             var linux = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "LinuxHelpers", "dlopen", "dlclose", "dlsym", "libdl", PInvokeCallingConvention.CDecl);
             var darwin = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "DarwinHelpers", "dlopen", "dlclose", "dlsym", "libSystem", PInvokeCallingConvention.CDecl);
             var bsd = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "BSDHelpers", "dlopen", "dlclose", "dlsym", "libc", PInvokeCallingConvention.CDecl);
-            var windows = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "WindowsHelpers", "LoadLibrary", "FreeLibrary", "GetProcAddress", "kernel32", PInvokeCallingConvention.StdCall, isUnix: false);
+            var windows = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "WindowsHelpers", "LoadLibrary", "FreeLibrary", "GetProcAddress", "kernel32", PInvokeCallingConvention.WinApi, isUnix: false);
             var unix = CreateUnixHelpers(host, rootUnitNamespace, this.marshalClass, linux, darwin, bsd);
-            var topLevel = CreatePInvokeHelpers(this.host, rootUnitNamespace, this.getOSVersion, this.getPlatform, windows, unix);
+            var topLevel = CreatePInvokeHelpers(this.host, rootUnitNamespace, this.loadLibrary, this.getProcAddress, this.getOSVersion, this.getPlatform, windows, unix);
 
             typeDefList.Add(unix);
             typeDefList.Add(windows);
@@ -42,7 +48,6 @@
             typeDefList.Add(linux);
             typeDefList.Add(bsd);
             typeDefList.Add(topLevel);
-
 
             foreach (var t in typeDefList)
             {
@@ -78,7 +83,10 @@
 
             typeDef.ContainingUnitNamespace = rootUnitNamespace;
             typeDef.Methods = new List<IMethodDefinition> { loadLibrary, freeLibrary, getProcAddress };
-            typeDef.IsPublic = true;
+            typeDef.IsPublic = false;
+            typeDef.IsSealed = true;
+            typeDef.IsAbstract = true;
+            typeDef.IsBeforeFieldInit = true;
             typeDef.BaseClasses = new List<ITypeReference> { host.PlatformType.SystemObject };
             typeDef.Name = host.NameTable.GetNameFor(className);
 
@@ -141,9 +149,10 @@
                 Type = returnType,
                 Parameters = parameters,
                 Name = exportMethodName,
-                Visibility = TypeMemberVisibility.Assembly,
+                Visibility = TypeMemberVisibility.Public,
                 IsStatic = true,
                 IsPlatformInvoke = true,
+                PreserveSignature = true,
                 IsHiddenBySignature = true,
                 IsExternal = true,
                 PlatformInvokeData = new PlatformInvokeInformation
@@ -162,7 +171,8 @@
                 Name = host.NameTable.GetNameFor("GetOperatingSystem"),
                 IsStatic = true,
                 ContainingTypeDefinition = typeDef,
-                Visibility = TypeMemberVisibility.Assembly,
+                IsHiddenBySignature = true,
+                Visibility = TypeMemberVisibility.Private,
                 Type = host.PlatformType.SystemInt32
             };
 
@@ -181,7 +191,7 @@
             AddOperatingSystemCase(ilGenerator, "FreeBSD", stringOPEquality, freebsdLabel);
             AddOperatingSystemCase(ilGenerator, "NetBSD", stringOPEquality, netbsdLabel);
 
-            ilGenerator.Emit(OperationCode.Br, unknownLabel);
+            ilGenerator.Emit(OperationCode.Br_S, unknownLabel);
 
             ilGenerator.MarkLabel(linuxLabel);
             ilGenerator.Emit(OperationCode.Ldc_I4_1);
@@ -212,7 +222,7 @@
             ilGenerator.Emit(OperationCode.Ldloc_0);
             ilGenerator.Emit(OperationCode.Ldstr, operatingSystemName);
             ilGenerator.Emit(OperationCode.Call, stringOPEquality);
-            ilGenerator.Emit(OperationCode.Brtrue, operatingSystemSwitchLabel);
+            ilGenerator.Emit(OperationCode.Brtrue_S, operatingSystemSwitchLabel);
         }
 
         private static IMethodDefinition CreateUnameMethod(IMetadataHost host, INamedTypeDefinition typeDef, IFieldReference intPtrZero, IMethodReference allocHGlobal, IMethodReference ptrToStringAnsi, IMethodReference freeHGlobal, IMethodReference unamePInvoke, IMethodReference intPtrOpInequality)
@@ -221,8 +231,9 @@
             {
                 Name = host.NameTable.GetNameFor("uname"),
                 IsStatic = true,
+                IsHiddenBySignature = true,
                 ContainingTypeDefinition = typeDef,
-                Visibility = TypeMemberVisibility.Assembly,
+                Visibility = TypeMemberVisibility.Private,
                 Type = host.PlatformType.SystemString
             };
 
@@ -248,10 +259,10 @@
             var endFinallyLabel = new ILGeneratorLabel();
 
             ilGenerator.Emit(OperationCode.Leave_S, exitLabel);
+            ilGenerator.MarkLabel(emptyStringLabel);
             ilGenerator.Emit(OperationCode.Ldstr, "");
             ilGenerator.Emit(OperationCode.Stloc_1);
             ilGenerator.Emit(OperationCode.Leave_S, exitLabel);
-            ilGenerator.EndTryBody();
             ilGenerator.BeginFinallyBlock();
             ilGenerator.Emit(OperationCode.Ldloc_0);
             ilGenerator.Emit(OperationCode.Ldsfld, intPtrZero);
@@ -261,6 +272,7 @@
             ilGenerator.Emit(OperationCode.Call, freeHGlobal);
             ilGenerator.MarkLabel(endFinallyLabel);
             ilGenerator.Emit(OperationCode.Endfinally);
+            ilGenerator.EndTryBody();
             ilGenerator.MarkLabel(exitLabel);
             ilGenerator.Emit(OperationCode.Ldloc_1);
             ilGenerator.Emit(OperationCode.Ret);
@@ -297,7 +309,8 @@
                 Parameters = parameters,
                 ContainingTypeDefinition = typeDef,
                 IsStatic = true,
-                Visibility = TypeMemberVisibility.Assembly,
+                IsHiddenBySignature = true,
+                Visibility = TypeMemberVisibility.Public,
                 Type = returnType
             };
 
@@ -322,20 +335,32 @@
             ilGenerator.Emit(OperationCode.Switch, labels);
             ilGenerator.Emit(OperationCode.Br_S, unknownLabel);
 
-            AddOperatingSystemCase2(ilGenerator, linuxHelpers);
-            AddOperatingSystemCase2(ilGenerator, darwinHelpers);
-            AddOperatingSystemCase2(ilGenerator, bsdHelpers);
+            AddOperatingSystemCase2(ilGenerator, linuxHelpers, linuxLabel);
+            AddOperatingSystemCase2(ilGenerator, darwinHelpers, darwinLabel);
+            AddOperatingSystemCase2(ilGenerator, bsdHelpers, bsdLabel);
 
+            ilGenerator.MarkLabel(unknownLabel);
             ilGenerator.Emit(OperationCode.Ldstr, "Platform Not Supported");
-            ilGenerator.Emit(OperationCode.Newobj, host.PlatformType.SystemException);
+
+            var exceptionCtor = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor(".ctor"),
+                ContainingType = host.PlatformType.SystemException,
+                Type = host.PlatformType.SystemVoid,
+                CallingConvention = CallingConvention.HasThis,
+                Parameters = new List<IParameterTypeInformation> {  new ParameterDefinition { Type = host.PlatformType.SystemString } }
+            };
+
+            ilGenerator.Emit(OperationCode.Newobj, exceptionCtor);
             ilGenerator.Emit(OperationCode.Throw);
 
             methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 2, methodDefinition, new List<ILocalDefinition> { new LocalDefinition { Type = host.PlatformType.SystemInt32 } }, new List<ITypeDefinition>());
             return methodDefinition;
         }
 
-        private static void AddOperatingSystemCase2(ILGenerator ilGenerator, IMethodReference helper)
+        private static void AddOperatingSystemCase2(ILGenerator ilGenerator, IMethodReference helper, ILGeneratorLabel label)
         {
+            ilGenerator.MarkLabel(label);
             ilGenerator.Emit(OperationCode.Ldarg_0);
             ilGenerator.Emit(OperationCode.Ldarg_1);
             ilGenerator.Emit(OperationCode.Call, helper);
@@ -408,19 +433,25 @@
             
             typeDef.ContainingUnitNamespace = rootUnitNamespace;
             typeDef.Methods = new List<IMethodDefinition> { unamePInvokeMethod, unameMethod, getosmethod, dlopen, dlclose, dlsym };
-            typeDef.IsPublic = true;
+            typeDef.IsPublic = false;
+            typeDef.IsAbstract = true;
+            typeDef.IsSealed = true;
+            typeDef.IsBeforeFieldInit = true;
             typeDef.BaseClasses = new List<ITypeReference> { host.PlatformType.SystemObject };
             typeDef.Name = host.NameTable.GetNameFor("UnixHelpers");
 
             return typeDef;
         }
 
-        private static INamedTypeDefinition CreatePInvokeHelpers(IMetadataHost host, IRootUnitNamespace rootUnitNamespace, IMethodReference getOSVersion, IMethodReference getPlatform, INamedTypeDefinition windows, INamedTypeDefinition unix)
+        private static INamedTypeDefinition CreatePInvokeHelpers(IMetadataHost host, IRootUnitNamespace rootUnitNamespace, MethodDefinition loadLibrary, MethodDefinition getProcAddress, IMethodReference getOSVersion, IMethodReference getPlatform, INamedTypeDefinition windows, INamedTypeDefinition unix)
         {
             var typeDef = new NamespaceTypeDefinition
             {
                 ContainingUnitNamespace = rootUnitNamespace,
-                IsPublic = true,
+                IsPublic = false,
+                IsAbstract = true,
+                IsSealed = true,
+                IsBeforeFieldInit = true,
                 BaseClasses = new List<ITypeReference> { host.PlatformType.SystemObject },
                 Name = host.NameTable.GetNameFor("PInvokeHelpers")
             };
@@ -428,8 +459,11 @@
             var isUnix = new FieldDefinition
             {
                 IsStatic = true,
+                ContainingTypeDefinition = typeDef,
                 IsReadOnly = true,
-                Type = host.PlatformType.SystemBoolean
+                Visibility = TypeMemberVisibility.Private,
+                Type = host.PlatformType.SystemBoolean,
+                Name = host.NameTable.GetNameFor("isUnix")
             };
 
             var windowsMethods = windows.Methods.ToList();
@@ -437,11 +471,12 @@
 
             var isUnixStaticFunction = CreateIsUnixStaticFunction(host, typeDef, getOSVersion, getPlatform);
             var cctor = CreateCCtor(host, typeDef, isUnix, isUnixStaticFunction);
-            var loadlibrary = LoadLibrary(host, typeDef, windowsMethods[0], unixMethods[0], isUnix);
-            var getprocaddress = GetProcAddress(host, typeDef, windowsMethods[1], unixMethods[1], isUnix);
-            var freelibrary = FreeLibrary(host, typeDef, windowsMethods[2], unixMethods[2], isUnix);
+            var loadlibrary = LoadLibrary(host, typeDef, loadLibrary, windowsMethods[0], unixMethods[3], isUnix);
+            var freelibrary = FreeLibrary(host, typeDef, windowsMethods[1], unixMethods[4], isUnix);
+            var getprocaddress = GetProcAddress(host, typeDef, getProcAddress, windowsMethods[2], unixMethods[5], isUnix);
 
             typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, getprocaddress, freelibrary };
+            typeDef.Fields = new List<IFieldDefinition> { isUnix };
             return typeDef;
         }
 
@@ -453,7 +488,7 @@
                 IsStatic = true,
                 IsSpecialName = true,
                 IsRuntimeSpecial = true,
-                Visibility = TypeMemberVisibility.Assembly,
+                Visibility = TypeMemberVisibility.Private,
                 Type = host.PlatformType.SystemVoid,
                 IsHiddenBySignature = true,
                 Name = host.NameTable.GetNameFor(".cctor")
@@ -476,7 +511,8 @@
                 ContainingTypeDefinition = typeDef,
                 IsStatic = true,
                 Visibility = TypeMemberVisibility.Assembly,
-                Type = host.PlatformType.SystemBoolean
+                Type = host.PlatformType.SystemBoolean,
+                Name = host.NameTable.GetNameFor("IsUnix")
             };
 
             var label = new ILGeneratorLabel();
@@ -500,17 +536,18 @@
             return methodDefinition;
         }
 
-        private static IMethodDefinition LoadLibrary(IMetadataHost host, INamedTypeDefinition typeDef, IMethodReference loadLibrary, IMethodReference dlopen, IFieldReference isUnix)
+        private static IMethodDefinition LoadLibrary(IMetadataHost host, INamedTypeDefinition typeDef, MethodDefinition methodDefinition, IMethodReference loadLibrary, IMethodReference dlopen, IFieldReference isUnix)
         {
-            var methodDefinition = new MethodDefinition
+            methodDefinition.Name = host.NameTable.GetNameFor("LoadLibrary");
+            methodDefinition.ContainingTypeDefinition = typeDef;
+            methodDefinition.Parameters = new List<IParameterDefinition>
             {
-                Name = host.NameTable.GetNameFor("LoadLibrary"),
-                ContainingTypeDefinition = typeDef,
-                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemString } },
-                IsStatic = true,
-                Visibility = TypeMemberVisibility.Assembly,
-                Type = host.PlatformType.SystemIntPtr
+                new ParameterDefinition {Type = host.PlatformType.SystemString}
             };
+            methodDefinition.IsStatic = true;
+            methodDefinition.IsHiddenBySignature = true;
+            methodDefinition.Visibility = TypeMemberVisibility.Public;
+            methodDefinition.Type = host.PlatformType.SystemIntPtr;
 
             var ilGenerator = new ILGenerator(host, methodDefinition);
 
@@ -532,17 +569,19 @@
             return methodDefinition;
         }
 
-        private static IMethodDefinition GetProcAddress(IMetadataHost host, INamedTypeDefinition typeDef, IMethodReference getProcAddress, IMethodReference dlsym, IFieldReference isUnix)
+        private static IMethodDefinition GetProcAddress(IMetadataHost host, INamedTypeDefinition typeDef, MethodDefinition methodDefinition, IMethodReference getProcAddress, IMethodReference dlsym, IFieldReference isUnix)
         {
-            var methodDefinition = new MethodDefinition
+            methodDefinition.Name = host.NameTable.GetNameFor("GetProcAddress");
+            methodDefinition.ContainingTypeDefinition = typeDef;
+            methodDefinition.Parameters = new List<IParameterDefinition>
             {
-                Name = host.NameTable.GetNameFor("GetProcAddress"),
-                ContainingTypeDefinition = typeDef,
-                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Type = host.PlatformType.SystemString } },
-                IsStatic = true,
-                Visibility = TypeMemberVisibility.Assembly,
-                Type = host.PlatformType.SystemIntPtr
+                new ParameterDefinition {Type = host.PlatformType.SystemIntPtr},
+                new ParameterDefinition {Type = host.PlatformType.SystemString}
             };
+            methodDefinition.IsStatic = true;
+            methodDefinition.IsHiddenBySignature = true;
+            methodDefinition.Visibility = TypeMemberVisibility.Public;
+            methodDefinition.Type = host.PlatformType.SystemIntPtr;
             
             var ilGenerator = new ILGenerator(host, methodDefinition);
 
@@ -573,7 +612,8 @@
                 ContainingTypeDefinition = typeDef,
                 Parameters = new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr } },
                 IsStatic = true,
-                Visibility = TypeMemberVisibility.Assembly,
+                IsHiddenBySignature = true,
+                Visibility = TypeMemberVisibility.Public,
                 Type = host.PlatformType.SystemInt32
             };
 

@@ -43,7 +43,7 @@
             foreach (var moduleRef in moduleRefs)
             {
                 var fieldDef = this.CreateFunctionPointerField(typeDefinition, "pl_" + moduleRef);
-                var loadLibMethodDef = this.CreateLoadLibraryMethod(typeDefinition, moduleRef);
+                var loadLibMethodDef = this.CreateLoadLibraryMethod(typeDefinition, moduleRef, fieldDef);
 
                 typeDefinition.Fields.Add(fieldDef);
                 typeDefinition.Methods.Add(loadLibMethodDef);
@@ -168,12 +168,12 @@
             };
         }
 
-        private IMethodDefinition CreateLoadLibraryMethod(ITypeDefinition typeDefinition, string moduleRef)
+        private IMethodDefinition CreateLoadLibraryMethod(ITypeDefinition typeDefinition, string moduleRef, IFieldReference fieldRef)
         {
             var methodDefinition = new MethodDefinition
             {
                 IsStatic = true,
-                Type = this.platformType.SystemIntPtr,
+                Type = this.platformType.SystemVoid,
                 ContainingTypeDefinition = typeDefinition,
                 Name = this.nameTable.GetNameFor("LoadLibrary" + moduleRef),
                 IsNeverInlined = true,
@@ -185,6 +185,7 @@
 
             ilGenerator.Emit(OperationCode.Ldarg_0);
             ilGenerator.Emit(OperationCode.Call, this.loadLibrary);
+            ilGenerator.Emit(OperationCode.Stsfld, fieldRef);
             ilGenerator.Emit(OperationCode.Ret);
 
             var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, false, 2, methodDefinition, Enumerable.Empty<ILocalDefinition>(), Enumerable.Empty<ITypeDefinition>());
