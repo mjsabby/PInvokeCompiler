@@ -95,7 +95,7 @@
 
             if (isUnix)
             {
-                loadLibrary.Parameters.Add(new ParameterDefinition { Type = host.PlatformType.SystemInt32 });
+                loadLibrary.Parameters.Add(new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemInt32 });
             }
 
             var freeLibrary = CreateFreeLibraryMethod(host, typeDef, moduleRef, freeLibraryMethodName, callingConvention);
@@ -120,7 +120,7 @@
                 typeDef,
                 new List<IParameterDefinition>
                 {
-                    new ParameterDefinition { Type = host.PlatformType.SystemString }
+                    new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }
                 },
                 host.PlatformType.SystemIntPtr,
                 moduleRef,
@@ -135,7 +135,7 @@
                 typeDef,
                 new List<IParameterDefinition>
                 {
-                    new ParameterDefinition { Type = host.PlatformType.SystemIntPtr }
+                    new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }
                 },
                 host.PlatformType.SystemInt32,
                 moduleRef,
@@ -150,8 +150,8 @@
                 typeDef,
                 new List<IParameterDefinition>
                 {
-                    new ParameterDefinition { Type = host.PlatformType.SystemIntPtr },
-                    new ParameterDefinition { Type = host.PlatformType.SystemString }
+                    new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr },
+                    new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString }
                 },
                 host.PlatformType.SystemIntPtr,
                 moduleRef,
@@ -303,22 +303,22 @@
 
         private static IMethodDefinition CreateUnamePInvokeMethod(IMetadataHost host, INamedTypeDefinition typeDef, IModuleReference libc)
         {
-            return CreatePInvokeMethod(host, typeDef, new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr } }, host.PlatformType.SystemInt32, libc, "uname", PInvokeCallingConvention.CDecl);
+            return CreatePInvokeMethod(host, typeDef, new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr } }, host.PlatformType.SystemInt32, libc, "uname", PInvokeCallingConvention.CDecl);
         }
 
         private static IMethodDefinition CreateDLOpen(IMetadataHost host, INamedTypeDefinition typeDef, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers)
         {
-            return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlopen"), new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemString }, new ParameterDefinition { Type = host.PlatformType.SystemInt32 } }, host.PlatformType.SystemIntPtr, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers);
+            return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlopen"), new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemInt32 } }, host.PlatformType.SystemIntPtr, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers);
         }
 
         private static IMethodDefinition CreateDLClose(IMetadataHost host, INamedTypeDefinition typeDef, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers)
         {
-            return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlclose"), new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Type = host.PlatformType.SystemInt32 } }, host.PlatformType.SystemInt32, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers, generateSecondLoad: false);
+            return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlclose"), new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemInt32 } }, host.PlatformType.SystemInt32, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers, generateSecondLoad: false);
         }
 
         private static IMethodDefinition CreateDLSym(IMetadataHost host, INamedTypeDefinition typeDef, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers)
         {
-            return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlsym"), new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Type = host.PlatformType.SystemString } }, host.PlatformType.SystemIntPtr, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers);
+            return CreateDLMethod(host, typeDef, host.NameTable.GetNameFor("dlsym"), new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString } }, host.PlatformType.SystemIntPtr, getOperatingSystem, linuxHelpers, darwinHelpers, bsdHelpers);
         }
 
         private static IMethodDefinition CreateDLMethod(IMetadataHost host, INamedTypeDefinition typeDef, IName name, List<IParameterDefinition> parameters, ITypeReference returnType, IMethodReference getOperatingSystem, IMethodReference linuxHelpers, IMethodReference darwinHelpers, IMethodReference bsdHelpers, bool generateSecondLoad = true)
@@ -368,7 +368,7 @@
                 ContainingType = host.PlatformType.SystemException,
                 Type = host.PlatformType.SystemVoid,
                 CallingConvention = CallingConvention.HasThis,
-                Parameters = new List<IParameterTypeInformation> {  new ParameterDefinition { Type = host.PlatformType.SystemString } }
+                Parameters = new List<IParameterTypeInformation> {  new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString } }
             };
 
             ilGenerator.Emit(OperationCode.Newobj, exceptionCtor);
@@ -567,7 +567,7 @@
             methodDefinition.ContainingTypeDefinition = typeDef;
             methodDefinition.Parameters = new List<IParameterDefinition>
             {
-                new ParameterDefinition {Type = host.PlatformType.SystemString}
+                new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }
             };
             methodDefinition.IsStatic = true;
             methodDefinition.IsHiddenBySignature = true;
@@ -600,8 +600,8 @@
             methodDefinition.ContainingTypeDefinition = typeDef;
             methodDefinition.Parameters = new List<IParameterDefinition>
             {
-                new ParameterDefinition {Type = host.PlatformType.SystemIntPtr},
-                new ParameterDefinition {Type = host.PlatformType.SystemString}
+                new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr },
+                new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString }
             };
             methodDefinition.IsStatic = true;
             methodDefinition.IsHiddenBySignature = true;
@@ -635,7 +635,7 @@
             {
                 Name = host.NameTable.GetNameFor("FreeLibrary"),
                 ContainingTypeDefinition = typeDef,
-                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr } },
+                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr } },
                 IsStatic = true,
                 IsHiddenBySignature = true,
                 Visibility = TypeMemberVisibility.Public,

@@ -126,8 +126,6 @@
             var methodExitLabel = new ILGeneratorLabel();
 
             ilGenerator.Emit(OperationCode.Stloc, local);
-            ilGenerator.Emit(OperationCode.Pop);
-            ilGenerator.Emit(OperationCode.Pop);
             ilGenerator.Emit(OperationCode.Ldloc, local);
             ilGenerator.Emit(OperationCode.Brfalse, nullLabelCase);
             ilGenerator.Emit(OperationCode.Ldloc, local);
