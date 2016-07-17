@@ -161,6 +161,13 @@
                     throw new Exception($"Unable to find type def for {typeRef}. The assembly this type is defined in was not loaded");
                 }
 
+                int instanceFieldCount = typeDef.Fields.Count(t => !t.IsStatic);
+                if (instanceFieldCount > 1)
+                {
+                    throw new Exception($"Type {typeRef} has more than 1 instance field. PInvokeCompiler only supports");
+
+                }
+
                 foreach (var fieldInfo in typeDef.Fields)
                 {
                     if (fieldInfo.IsStatic)

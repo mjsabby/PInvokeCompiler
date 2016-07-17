@@ -22,10 +22,14 @@
 
         private readonly IMethodReference ptrToStringAnsi;
 
-        public PInvokeMethodMetadataRewriter(ITypeReference marshalClass, ITypeReference compilerServices, IMethodReference stringToAnsiArray, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IMethodTransformationMetadataProvider metadataProvider)
+        private readonly ITypeReference skipTypeReference;
+
+        public PInvokeMethodMetadataRewriter(InteropHelperReferences interopHelperReferences, IMetadataHost host, IMethodTransformationMetadataProvider metadataProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
             this.metadataProvider = metadataProvider;
+            var platformType = host.PlatformType;
+            var nameTable = host.NameTable;
 
             this.intPtrZero = new FieldReference
             {
@@ -34,12 +38,12 @@
                 Type = platformType.SystemIntPtr
             };
 
-            this.stringToAnsiArray = stringToAnsiArray;
+            this.stringToAnsiArray = interopHelperReferences.StringToAnsiByteArray;
 
             this.getOffSetToStringData = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = nameTable.GetNameFor("get_OffsetToStringData"),
-                ContainingType = compilerServices,
+                ContainingType = interopHelperReferences.SystemRuntimeCompilerServicesRuntimeHelpers,
                 Type = platformType.SystemInt32
             };
 
@@ -54,7 +58,7 @@
             this.getFunctionPointerForDelegate = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = nameTable.GetNameFor("GetFunctionPointerForDelegate"),
-                ContainingType = marshalClass,
+                ContainingType = interopHelperReferences.SystemRuntimeInteropServicesMarshal,
                 Type = platformType.SystemIntPtr,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = platformType.SystemDelegate } }
             };
@@ -62,7 +66,7 @@
             this.getFunctionPointerForDelegate = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = nameTable.GetNameFor("GetFunctionPointerForDelegate"),
-                ContainingType = marshalClass,
+                ContainingType = interopHelperReferences.SystemRuntimeInteropServicesMarshal,
                 Type = platformType.SystemIntPtr,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = platformType.SystemDelegate } }
             };
@@ -70,17 +74,22 @@
             this.ptrToStringAnsi = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.GetNameFor("PtrToStringAnsi"),
-                ContainingType = marshalClass,
+                ContainingType = interopHelperReferences.SystemRuntimeInteropServicesMarshal,
                 Type = host.PlatformType.SystemString,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr } }
             };
+
+            this.skipTypeReference = interopHelperReferences.PInvokeHelpers;
         }
 
         public override void RewriteChildren(MethodDefinition method)
         {
             if (method.IsPlatformInvoke)
             {
-                this.TransformPInvokeMethodDefinitionToImplementedMethodDefinition(method);
+                if (!TypeHelper.TypesAreEquivalent(method.ContainingTypeDefinition, this.skipTypeReference))
+                {
+                    this.TransformPInvokeMethodDefinitionToImplementedMethodDefinition(method);
+                }
             }
 
             base.RewriteChildren(method);

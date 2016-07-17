@@ -10,10 +10,22 @@
 
         private readonly Dictionary<ITypeDefinition, HashSet<IModuleReference>> moduleRefsTable = new Dictionary<ITypeDefinition, HashSet<IModuleReference>>();
 
+        private readonly ITypeReference skipTypeReference;
+
+        public PInvokeMethodMetadataTraverser(ITypeReference skipTypeReference)
+        {
+            this.skipTypeReference = skipTypeReference;
+        }
+
         public override void TraverseChildren(IMethodDefinition methodDefinition)
         {
             if (methodDefinition.IsPlatformInvoke)
             {
+                if (TypeHelper.TypesAreEquivalent(methodDefinition.ContainingTypeDefinition, this.skipTypeReference))
+                {
+                    return;
+                }
+
                 var typeDefinition = methodDefinition.ContainingTypeDefinition;
                 List<IMethodDefinition> methodDefinitions;
                 if (!this.typeDefinitionTable.TryGetValue(typeDefinition, out methodDefinitions))
