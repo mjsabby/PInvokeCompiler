@@ -12,17 +12,17 @@
 
         private readonly FieldReference intPtrZero;
 
-        private readonly Microsoft.Cci.MutableCodeModel.MethodReference intPtrOpEquality;
+        private readonly IMethodReference intPtrOpEquality;
 
-        private readonly Microsoft.Cci.MutableCodeModel.MethodReference intPtrSize;
+        private readonly IMethodReference getFunctionPointerForDelegate;
 
-        private readonly Microsoft.Cci.MutableCodeModel.MethodReference getFunctionPointerForDelegate;
+        private readonly IMethodReference getOffSetToStringData;
 
-        private readonly Microsoft.Cci.MutableCodeModel.MethodReference getLength;
+        private readonly IMethodReference stringToAnsiArray;
 
-        private readonly Microsoft.Cci.MutableCodeModel.MethodReference getChars;
+        private readonly IMethodReference ptrToStringAnsi;
 
-        public PInvokeMethodMetadataRewriter(ITypeReference marshalClass, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IMethodTransformationMetadataProvider metadataProvider)
+        public PInvokeMethodMetadataRewriter(ITypeReference marshalClass, ITypeReference compilerServices, IMethodReference stringToAnsiArray, IMetadataHost host, IPlatformType platformType, INameTable nameTable, IMethodTransformationMetadataProvider metadataProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
             this.metadataProvider = metadataProvider;
@@ -34,27 +34,12 @@
                 Type = platformType.SystemIntPtr
             };
 
-            this.getLength = new Microsoft.Cci.MutableCodeModel.MethodReference
-            {
-                Name = nameTable.GetNameFor("get_Length"),
-                ContainingType = platformType.SystemString,
-                Type = platformType.SystemInt32,
-                CallingConvention = Microsoft.Cci.CallingConvention.HasThis
-            };
+            this.stringToAnsiArray = stringToAnsiArray;
 
-            this.getChars = new Microsoft.Cci.MutableCodeModel.MethodReference
+            this.getOffSetToStringData = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
-                Name = nameTable.GetNameFor("get_Chars"),
-                ContainingType = platformType.SystemString,
-                Type = platformType.SystemChar,
-                CallingConvention = Microsoft.Cci.CallingConvention.HasThis,
-                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = platformType.SystemInt32 } }
-            };
-
-            this.intPtrSize = new Microsoft.Cci.MutableCodeModel.MethodReference
-            {
-                Name = nameTable.GetNameFor("get_Size"),
-                ContainingType = platformType.SystemIntPtr,
+                Name = nameTable.GetNameFor("get_OffsetToStringData"),
+                ContainingType = compilerServices,
                 Type = platformType.SystemInt32
             };
 
@@ -73,6 +58,22 @@
                 Type = platformType.SystemIntPtr,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = platformType.SystemDelegate } }
             };
+
+            this.getFunctionPointerForDelegate = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = nameTable.GetNameFor("GetFunctionPointerForDelegate"),
+                ContainingType = marshalClass,
+                Type = platformType.SystemIntPtr,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = platformType.SystemDelegate } }
+            };
+
+            this.ptrToStringAnsi = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("PtrToStringAnsi"),
+                ContainingType = marshalClass,
+                Type = host.PlatformType.SystemString,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr } }
+            };
         }
 
         public override void RewriteChildren(MethodDefinition method)
@@ -85,9 +86,9 @@
             base.RewriteChildren(method);
         }
 
-        private static void EmitUnicodeStringMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IMethodReference intPtrSize, ITypeReference stringType)
+        private static void EmitUnicodeStringMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IMethodReference getOffsetToStringData, ITypeReference stringType)
         {
-            var pinnedLocal = new LocalDefinition { IsPinned = true, IsReference = true, Type = stringType };
+            var pinnedLocal = new LocalDefinition { IsPinned = true, Type = stringType };
             locals.Add(pinnedLocal);
 
             var nullCaseLabel = new ILGeneratorLabel();
@@ -97,89 +98,23 @@
             ilGenerator.Emit(OperationCode.Conv_I);
             ilGenerator.Emit(OperationCode.Dup);
             ilGenerator.Emit(OperationCode.Brfalse_S, nullCaseLabel);
-            ilGenerator.Emit(OperationCode.Call, intPtrSize);
-            ilGenerator.Emit(OperationCode.Ldc_I4_4);
-            ilGenerator.Emit(OperationCode.Add);
+            ilGenerator.Emit(OperationCode.Call, getOffsetToStringData);
             ilGenerator.Emit(OperationCode.Add);
             ilGenerator.MarkLabel(nullCaseLabel);
         }
 
-        private static void EmitAnsiStringMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IParameterDefinition parameter, IMethodReference getLength, IMethodReference getChars, IPlatformType platformType)
+        private static void EmitAnsiStringMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IMethodReference stringToAnsiByteArray, IPlatformType platformType)
         {
             var byteType = platformType.SystemUInt8;
             var byteArrayType = new VectorTypeReference { ElementType = byteType, Rank = 1 };
-
-            var byteArray = new LocalDefinition { Type = byteArrayType.ResolvedArrayType };
-            var loopIndex = new LocalDefinition { Type = platformType.SystemInt32 };
-            var pinnedLocal = new LocalDefinition { IsPinned = true, IsReference = true, Type = byteType };
-
-            var local = new LocalDefinition { Type = platformType.SystemString };
-
-            locals.Add(byteArray);
-            locals.Add(loopIndex);
-            locals.Add(pinnedLocal);
-            locals.Add(local);
-
-            var loopBackEdge = new ILGeneratorLabel();
-            var loopStart = new ILGeneratorLabel();
-            var nullLabelCase = new ILGeneratorLabel();
-            var methodExitLabel = new ILGeneratorLabel();
-
-            ilGenerator.Emit(OperationCode.Stloc, local);
-            ilGenerator.Emit(OperationCode.Ldloc, local);
-            ilGenerator.Emit(OperationCode.Brfalse, nullLabelCase);
-            ilGenerator.Emit(OperationCode.Ldloc, local);
-            ilGenerator.Emit(OperationCode.Call, getLength);
-            ilGenerator.Emit(OperationCode.Ldc_I4_1);
-            ilGenerator.Emit(OperationCode.Add);
-            ilGenerator.Emit(OperationCode.Newarr, byteArrayType);
-            ilGenerator.Emit(OperationCode.Stloc, byteArray);
-            ilGenerator.Emit(OperationCode.Ldc_I4_0);
-            ilGenerator.Emit(OperationCode.Stloc, loopIndex);
-            ilGenerator.Emit(OperationCode.Br_S, loopStart);
-            ilGenerator.MarkLabel(loopBackEdge);
-            ilGenerator.Emit(OperationCode.Ldloc, byteArray);
-            ilGenerator.Emit(OperationCode.Ldloc, loopIndex);
-            ilGenerator.Emit(OperationCode.Ldarg, parameter);
-            ilGenerator.Emit(OperationCode.Ldloc, loopIndex);
-            ilGenerator.Emit(OperationCode.Call, getChars);
-            ilGenerator.Emit(OperationCode.Conv_U1);
-            ilGenerator.Emit(OperationCode.Stelem_I1);
-            ilGenerator.Emit(OperationCode.Ldloc, loopIndex);
-            ilGenerator.Emit(OperationCode.Ldc_I4_1);
-            ilGenerator.Emit(OperationCode.Add);
-            ilGenerator.Emit(OperationCode.Stloc, loopIndex);
-            ilGenerator.MarkLabel(loopStart);
-            ilGenerator.Emit(OperationCode.Ldloc, loopIndex);
-            ilGenerator.Emit(OperationCode.Ldloc, byteArray);
-            ilGenerator.Emit(OperationCode.Ldlen);
-            ilGenerator.Emit(OperationCode.Conv_I4);
-            ilGenerator.Emit(OperationCode.Ldc_I4_1);
-            ilGenerator.Emit(OperationCode.Sub);
-            ilGenerator.Emit(OperationCode.Blt_S, loopBackEdge);
-            ilGenerator.Emit(OperationCode.Ldloc, byteArray);
-            ilGenerator.Emit(OperationCode.Ldc_I4_0);
-            ilGenerator.Emit(OperationCode.Ldelema, byteType);
-            ilGenerator.Emit(OperationCode.Stloc, pinnedLocal);
-            ilGenerator.Emit(OperationCode.Ldloc, pinnedLocal);
-            ilGenerator.Emit(OperationCode.Conv_I);
-            ilGenerator.Emit(OperationCode.Br_S, methodExitLabel);
-            ilGenerator.MarkLabel(nullLabelCase);
-            ilGenerator.Emit(OperationCode.Ldnull);
-            ilGenerator.Emit(OperationCode.Conv_I);
-            ilGenerator.MarkLabel(methodExitLabel);
+            
+            ilGenerator.Emit(OperationCode.Call, stringToAnsiByteArray);
+            EmitArrayMarshalling(locals, ilGenerator, byteArrayType.ResolvedArrayType);
         }
 
-        private static void EmitStringReturnMarshalling(ILGenerator ilGenerator)
+        private static void EmitStringReturnMarshalling(ILGenerator ilGenerator, IMethodReference ptrToStringAnsi)
         {
-        }
-
-        private static void EmitBooleanMarshalling(ILGenerator ilGenerator)
-        {
-        }
-
-        private static void EmitBooleanReturnMarshalling(ILGenerator ilGenerator)
-        {
+            ilGenerator.Emit(OperationCode.Call, ptrToStringAnsi);
         }
 
         private static void EmitArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType)
@@ -198,7 +133,6 @@
             var duplicatearray = new LocalDefinition
             {
                 IsPinned = false,
-                IsReference = false,
                 Type = arrayType
             };
 
@@ -218,6 +152,7 @@
             ilGenerator.Emit(OperationCode.Stloc, pinnedLocal);
             ilGenerator.MarkLabel(nullCaseLabel);
             ilGenerator.Emit(OperationCode.Ldloc, pinnedLocal);
+            ilGenerator.Emit(OperationCode.Conv_I);
         }
 
         private static void EmitByRefMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, ITypeReference typeRef)
@@ -259,10 +194,19 @@
             this.LoadArguments(locals, ilGenerator, methodDefinition.ParameterCount, i => methodDefinition.Parameters[i]);
             ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);
             ilGenerator.Emit(OperationCode.Call, transformationMetadata.NativeMethod);
+            this.ReturnMarshalling(ilGenerator, methodDefinition);
             ilGenerator.Emit(OperationCode.Ret);
 
             var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, true, (ushort)((methodDefinition.ParameterCount + 1) * 2), methodDefinition, locals, new List<ITypeDefinition>());
             methodDefinition.Body = ilMethodBody;
+        }
+
+        private void ReturnMarshalling(ILGenerator ilGenerator, IMethodDefinition methodDefinition)
+        {
+            if (TypeHelper.TypesAreEquivalent(methodDefinition.Type, host.PlatformType.SystemString))
+            {
+                EmitStringReturnMarshalling(ilGenerator, this.ptrToStringAnsi);
+            }
         }
 
         private void LoadArguments(List<ILocalDefinition> locals, ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
@@ -306,11 +250,11 @@
                 {
                     if (parameter.MarshallingInformation.UnmanagedType == UnmanagedType.LPWStr)
                     {
-                        EmitUnicodeStringMarshalling(locals, ilGenerator, this.intPtrSize, this.host.PlatformType.SystemString);
+                        EmitUnicodeStringMarshalling(locals, ilGenerator, this.getOffSetToStringData, this.host.PlatformType.SystemString);
                     }
                     else
                     {
-                        EmitAnsiStringMarshalling(locals, ilGenerator, parameter, this.getLength, this.getChars, this.host.PlatformType);
+                        EmitAnsiStringMarshalling(locals, ilGenerator, this.stringToAnsiArray, this.host.PlatformType);
                     }
                 }
             }

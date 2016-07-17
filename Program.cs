@@ -37,6 +37,7 @@
                 ITypeReference environmentTypeReference = null;
                 ITypeReference platformIdTypeReference = null;
                 ITypeReference marshalTypeReference = null;
+                ITypeReference runtimeHelpersTypeReference = null;
 
                 foreach (var typeRef in assembly.GetTypeReferences())
                 {
@@ -61,6 +62,11 @@
                     if (string.Equals(name, "System.Runtime.InteropServices.Marshal", StringComparison.Ordinal))
                     {
                         marshalTypeReference = typeRef;
+                    }
+
+                    if (string.Equals(name, "System.Runtime.CompilerServices.RuntimeHelpers", StringComparison.Ordinal))
+                    {
+                        runtimeHelpersTypeReference = typeRef;
                     }
                 }
 
@@ -98,7 +104,13 @@
                     var interopServicesAssembly = mutable.AssemblyReferences.FirstOrDefault(t => t.Name.Value.Equals("System.Runtime.InteropServices")) ?? mscorlibAsmRef;
                     marshalTypeReference = CreateTypeReference(host, interopServicesAssembly, "System.Runtime.InteropServices.Marshal");
                 }
-                
+
+                if (runtimeHelpersTypeReference == null)
+                {
+                    var runtimeAssembly = mutable.AssemblyReferences.FirstOrDefault(t => t.Name.Value.Equals("System.Runtime")) ?? mscorlibAsmRef;
+                    runtimeHelpersTypeReference = CreateTypeReference(host, runtimeAssembly, "System.Runtime.CompilerServices.RuntimeHelpers");
+                }
+
                 var getOSVersion = new Microsoft.Cci.MutableCodeModel.MethodReference
                 {
                     Name = host.NameTable.GetNameFor("get_OSVersion"),
@@ -119,14 +131,15 @@
 
                 var loadLibraryMethod = new MethodDefinition();
                 var getProcAddressMethod = new MethodDefinition();
+                var stringToAnsiByteArrayMethod = new MethodDefinition();
 
                 var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(loadLibraryMethod, getProcAddressMethod, host, pinvokeMethodMetadataTraverser);
                 methodTransformationMetadataRewriter.RewriteChildren(mutable);
                 
-                var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(marshalTypeReference, host, host.PlatformType, host.NameTable, methodTransformationMetadataRewriter);
+                var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(marshalTypeReference, runtimeHelpersTypeReference, stringToAnsiByteArrayMethod, host, host.PlatformType, host.NameTable, methodTransformationMetadataRewriter);
                 pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
 
-                new PlatformSpecificHelpersTypeAdder(host, marshalTypeReference, getOSVersion, getPlatform, loadLibraryMethod, getProcAddressMethod).RewriteChildren(mutable);
+                new PlatformSpecificHelpersTypeAdder(host, marshalTypeReference, getOSVersion, getPlatform, loadLibraryMethod, getProcAddressMethod, stringToAnsiByteArrayMethod).RewriteChildren(mutable);
 
                 using (var stream = File.Create(outputFile))
                 {

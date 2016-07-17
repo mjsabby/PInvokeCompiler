@@ -17,7 +17,9 @@
 
         private readonly MethodDefinition getProcAddress;
 
-        public PlatformSpecificHelpersTypeAdder(IMetadataHost host, ITypeReference marshalClass, IMethodReference getOSVersion, IMethodReference getPlatform, MethodDefinition loadLibrary, MethodDefinition getProcAddress, bool copyAndRewriteImmutableReferences = false)
+        private readonly MethodDefinition stringToAnsiByteArrayMethod;
+
+        public PlatformSpecificHelpersTypeAdder(IMetadataHost host, ITypeReference marshalClass, IMethodReference getOSVersion, IMethodReference getPlatform, MethodDefinition loadLibrary, MethodDefinition getProcAddress, MethodDefinition stringToAnsiByteArrayMethod, bool copyAndRewriteImmutableReferences = false)
             : base(host, copyAndRewriteImmutableReferences)
         {
             this.marshalClass = marshalClass;
@@ -25,6 +27,7 @@
             this.getPlatform = getPlatform;
             this.loadLibrary = loadLibrary;
             this.getProcAddress = getProcAddress;
+            this.stringToAnsiByteArrayMethod = stringToAnsiByteArrayMethod;
         }
 
         public override void RewriteChildren(Assembly module)
@@ -60,7 +63,7 @@
             var bsd = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "BSDHelpers", "dlopen", "dlclose", "dlsym", libc, PInvokeCallingConvention.CDecl);
             var windows = CreatePlatformSpecificHelpers(this.host, rootUnitNamespace, "WindowsHelpers", "LoadLibrary", "FreeLibrary", "GetProcAddress", kernel32, PInvokeCallingConvention.WinApi, isUnix: false);
             var unix = CreateUnixHelpers(host, rootUnitNamespace, this.marshalClass, linux, darwin, bsd, libc);
-            var topLevel = CreatePInvokeHelpers(this.host, rootUnitNamespace, this.loadLibrary, this.getProcAddress, this.getOSVersion, this.getPlatform, windows, unix);
+            var topLevel = CreatePInvokeHelpers(this.host, rootUnitNamespace, this.loadLibrary, this.getProcAddress, this.stringToAnsiByteArrayMethod, this.getOSVersion, this.getPlatform, windows, unix);
 
             typeDefList.Add(unix);
             typeDefList.Add(windows);
@@ -468,7 +471,7 @@
             return typeDef;
         }
 
-        private static INamedTypeDefinition CreatePInvokeHelpers(IMetadataHost host, IRootUnitNamespace rootUnitNamespace, MethodDefinition loadLibrary, MethodDefinition getProcAddress, IMethodReference getOSVersion, IMethodReference getPlatform, INamedTypeDefinition windows, INamedTypeDefinition unix)
+        private static INamedTypeDefinition CreatePInvokeHelpers(IMetadataHost host, IRootUnitNamespace rootUnitNamespace, MethodDefinition loadLibrary, MethodDefinition getProcAddress, MethodDefinition stringToAnsiByteArray, IMethodReference getOSVersion, IMethodReference getPlatform, INamedTypeDefinition windows, INamedTypeDefinition unix)
         {
             var typeDef = new NamespaceTypeDefinition
             {
@@ -499,10 +502,95 @@
             var loadlibrary = LoadLibrary(host, typeDef, loadLibrary, windowsMethods[0], unixMethods[3], isUnix);
             var freelibrary = FreeLibrary(host, typeDef, windowsMethods[1], unixMethods[4], isUnix);
             var getprocaddress = GetProcAddress(host, typeDef, getProcAddress, windowsMethods[2], unixMethods[5], isUnix);
+            var stringtoansi = CreateStringToAnsi(host, typeDef, stringToAnsiByteArray);
 
-            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, getprocaddress, freelibrary };
+            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, getprocaddress, freelibrary, stringtoansi };
             typeDef.Fields = new List<IFieldDefinition> { isUnix };
             return typeDef;
+        }
+
+        private static IMethodDefinition CreateStringToAnsi(IMetadataHost host, INamedTypeDefinition typeDef, MethodDefinition methodDefinition)
+        {
+            var byteType = host.PlatformType.SystemUInt8;
+            var byteArrayType = new VectorTypeReference { ElementType = byteType, Rank = 1 };
+
+            methodDefinition.ContainingTypeDefinition = typeDef;
+            methodDefinition.IsStatic = true;
+            methodDefinition.Visibility = TypeMemberVisibility.Assembly;
+            methodDefinition.Type = byteArrayType.ResolvedArrayType;
+            methodDefinition.Parameters = new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemString } };
+            methodDefinition.Name = host.NameTable.GetNameFor("StringToAnsiByteArray");
+
+            var length = new LocalDefinition { Type = host.PlatformType.SystemInt32 };
+            var byteArray = new LocalDefinition { Type = byteArrayType.ResolvedArrayType };
+            var loopIndex = new LocalDefinition { Type = host.PlatformType.SystemInt32 };
+
+            var locals = new List<ILocalDefinition> { length, byteArray, loopIndex };
+
+            var ilGenerator = new ILGenerator(host, methodDefinition);
+            var nullCaseLabel = new ILGeneratorLabel();
+            var loopStart = new ILGeneratorLabel();
+            var loopBackEdge = new ILGeneratorLabel();
+
+            var getLength = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("get_Length"),
+                ContainingType = host.PlatformType.SystemString,
+                Type = host.PlatformType.SystemInt32,
+                CallingConvention = CallingConvention.HasThis
+            };
+
+            var getChars = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("get_Chars"),
+                ContainingType = host.PlatformType.SystemString,
+                Type = host.PlatformType.SystemChar,
+                CallingConvention = CallingConvention.HasThis,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemInt32 } }
+            };
+
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Brtrue_S, nullCaseLabel);
+            ilGenerator.Emit(OperationCode.Ldnull);
+            ilGenerator.Emit(OperationCode.Ret);
+            ilGenerator.MarkLabel(nullCaseLabel);
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Call, getLength);
+            ilGenerator.Emit(OperationCode.Stloc_0);
+            ilGenerator.Emit(OperationCode.Ldloc_0);
+            ilGenerator.Emit(OperationCode.Ldc_I4_1);
+            ilGenerator.Emit(OperationCode.Add);
+            ilGenerator.Emit(OperationCode.Newarr, byteArrayType);
+            ilGenerator.Emit(OperationCode.Stloc_1);
+            ilGenerator.Emit(OperationCode.Ldc_I4_0);
+            ilGenerator.Emit(OperationCode.Stloc_2);
+            ilGenerator.Emit(OperationCode.Br_S, loopStart);
+            ilGenerator.MarkLabel(loopBackEdge);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldloc_2);
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Ldloc_2);
+            ilGenerator.Emit(OperationCode.Call, getChars);
+            ilGenerator.Emit(OperationCode.Conv_U1);
+            ilGenerator.Emit(OperationCode.Stelem_I1);
+            ilGenerator.Emit(OperationCode.Ldloc_2);
+            ilGenerator.Emit(OperationCode.Ldc_I4_1);
+            ilGenerator.Emit(OperationCode.Add);
+            ilGenerator.Emit(OperationCode.Stloc_2);
+            ilGenerator.MarkLabel(loopStart);
+            ilGenerator.Emit(OperationCode.Ldloc_2);
+            ilGenerator.Emit(OperationCode.Ldloc_0);
+            ilGenerator.Emit(OperationCode.Blt_S, loopBackEdge);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldloc_0);
+            ilGenerator.Emit(OperationCode.Ldc_I4_0);
+            ilGenerator.Emit(OperationCode.Stelem_I1);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ret);
+
+            methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 8, methodDefinition, locals, new List<ITypeDefinition>());
+
+            return methodDefinition;
         }
 
         private static IMethodDefinition CreateCCtor(IMetadataHost host, INamedTypeDefinition typeDef, IFieldReference fieldRef, IMethodReference isUnixStaticFunction)

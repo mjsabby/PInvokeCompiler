@@ -42,7 +42,7 @@
 
             foreach (var moduleRef in moduleRefs)
             {
-                var fieldDef = this.CreateFunctionPointerField(typeDefinition, "pl_" + moduleRef);
+                var fieldDef = this.CreateFunctionPointerField(typeDefinition, "pl_" + moduleRef.Name.Value);
                 var loadLibMethodDef = this.CreateLoadLibraryMethod(typeDefinition, moduleRef, fieldDef);
 
                 typeDefinition.Fields.Add(fieldDef);
@@ -74,9 +74,11 @@
 
         private static MethodDefinition CreateRegularMethodDefinitionFromPInvokeMethodDefinition(IMethodDefinition methodDefinition, ITypeReference intPtrType)
         {
+            var returnType = !IsBlittableType(methodDefinition.Type) ? intPtrType : methodDefinition.Type;
+
             var nativeMethodDef = new MethodDefinition
             {
-                Type = methodDefinition.Type,
+                Type = returnType,
                 Name = methodDefinition.Name,
                 ContainingTypeDefinition = methodDefinition.ContainingTypeDefinition,
                 IsAggressivelyInlined = true,
@@ -130,14 +132,36 @@
         {
             var typeCode = typeRef.TypeCode;
 
+            switch (typeCode)
+            {
+                case PrimitiveTypeCode.Void:
+                case PrimitiveTypeCode.Int16:
+                case PrimitiveTypeCode.UInt16:
+                case PrimitiveTypeCode.Int32:
+                case PrimitiveTypeCode.UInt32:
+                case PrimitiveTypeCode.Int64:
+                case PrimitiveTypeCode.UInt64:
+                case PrimitiveTypeCode.IntPtr:
+                case PrimitiveTypeCode.UIntPtr:
+                case PrimitiveTypeCode.Float32:
+                case PrimitiveTypeCode.Float64:
+                case PrimitiveTypeCode.Pointer:
+                    return true;
+                case PrimitiveTypeCode.Char:
+                case PrimitiveTypeCode.Boolean:
+                    return false;
+            }
+            
             if (typeRef.IsValueType)
             {
-                if (typeCode == PrimitiveTypeCode.Char || typeCode == PrimitiveTypeCode.Boolean)
+                var typeDef = typeRef.ResolvedType;
+
+                if (string.Equals(typeDef.ToString(), "Microsoft.Cci.DummyNamespaceTypeDefinition"))
                 {
-                    return false;
+                    throw new Exception($"Unable to find type def for {typeRef}. The assembly this type is defined in was not loaded");
                 }
 
-                foreach (var fieldInfo in typeRef.ResolvedType.Fields)
+                foreach (var fieldInfo in typeDef.Fields)
                 {
                     if (fieldInfo.IsStatic)
                     {
@@ -153,7 +177,7 @@
                 return true;
             }
 
-            return typeCode == PrimitiveTypeCode.Pointer;
+            return false;
         }
 
         private IFieldDefinition CreateFunctionPointerField(INamedTypeDefinition typeDefinition, string fieldName)
@@ -229,9 +253,11 @@
             var ilGenerator = new ILGenerator(this.host, nativeMethodDef);
             LoadArguments(ilGenerator, pinvokeMethodDefinition.ParameterCount + 1, i => nativeMethodDef.Parameters[i]);
 
+            var returnType = !IsBlittableType(pinvokeMethodDefinition.Type) ? this.platformType.SystemIntPtr : pinvokeMethodDefinition.Type;
+
             var funcPtr = new FunctionPointerTypeReference
             {
-                Type = pinvokeMethodDefinition.Type,
+                Type = returnType,
                 Parameters = new List<IParameterTypeInformation>()
             };
 
