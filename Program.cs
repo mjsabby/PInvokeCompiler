@@ -31,8 +31,7 @@
 
                 Assembly mutable = new MetadataDeepCopier(host).Copy(assembly);                
 
-                var interopHelperReference = new InteropHelperReferences(host, mutable, assembly);
-                interopHelperReference.Initialize(); interopHelperReference.Initialize2();
+                var interopHelperReference = new InteropHelperReferences(host, mutable);
 
                 var pinvokeMethodMetadataTraverser = new PInvokeMethodMetadataTraverser(interopHelperReference.PInvokeHelpers);
                 pinvokeMethodMetadataTraverser.TraverseChildren(mutable);
@@ -40,7 +39,7 @@
                 var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(interopHelperReference.LoadLibrary, interopHelperReference.GetProcAddress, host, pinvokeMethodMetadataTraverser);
                 methodTransformationMetadataRewriter.RewriteChildren(mutable);
                 
-                var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(interopHelperReference, host, host.PlatformType, host.NameTable, methodTransformationMetadataRewriter);
+                var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(interopHelperReference, host, methodTransformationMetadataRewriter);
                 pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
 
                 using (var stream = File.Create(outputFile))

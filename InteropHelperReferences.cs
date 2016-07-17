@@ -8,19 +8,13 @@
 
     internal sealed class InteropHelperReferences
     {
-        private readonly IMetadataHost host;
-        
-        private readonly NamespaceTypeDefinition typeDef;
-
-        private readonly PlatformSpecificHelpersTypeAdder platformSpecificHelpers;
-
-        public InteropHelperReferences(IMetadataHost host, Assembly assembly, IAssembly nonmutable)
+        public InteropHelperReferences(IMetadataHost host, Assembly assembly)
         {
             ITypeReference systemOperatingSystem = null;
             ITypeReference systemEnvironment = null;
             ITypeReference systemPlatformID = null;
 
-            foreach (var typeRef in nonmutable.GetTypeReferences())
+            foreach (var typeRef in assembly.ResolvedAssembly.GetTypeReferences())
             {
                 var name = TypeHelper.GetTypeName(typeRef);
                 if (string.Equals(name, "System.OperatingSystem", StringComparison.Ordinal))
@@ -92,14 +86,14 @@
                 this.SystemRuntimeCompilerServicesRuntimeHelpers = CreateTypeReference(host, runtimeAssembly, "System.Runtime.CompilerServices.RuntimeHelpers");
             }
 
-            this.GetOSVersion = new Microsoft.Cci.MutableCodeModel.MethodReference
+            var getOSVersion = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.GetNameFor("get_OSVersion"),
                 ContainingType = systemEnvironment,
                 Type = systemOperatingSystem
             };
 
-            this.GetPlatform = new Microsoft.Cci.MutableCodeModel.MethodReference
+            var getPlatform = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.GetNameFor("get_Platform"),
                 ContainingType = systemOperatingSystem,
@@ -112,33 +106,28 @@
             assembly.UnitNamespaceRoot = rootUnitNamespace;
             rootUnitNamespace.Unit = assembly;
 
-            this.typeDef = CreatePInvokeHelpers(rootUnitNamespace, host);
-            this.PInvokeHelpers = this.typeDef;
-            this.host = host;
+            var typeDef = CreatePInvokeHelpers(rootUnitNamespace, host);
+            this.PInvokeHelpers = typeDef;
+            rootUnitNamespace.Members.Add(typeDef);
+            assembly.AllTypes.Add(typeDef);
 
-            rootUnitNamespace.Members.Add(this.typeDef);
-            assembly.AllTypes.Add(this.typeDef);
+            var platformSpecificHelpers = new PlatformSpecificHelpersTypeAdder(host, typeDef, SystemRuntimeInteropServicesMarshal);
 
-            this.platformSpecificHelpers = new PlatformSpecificHelpersTypeAdder(host, this.typeDef, SystemRuntimeInteropServicesMarshal);
-        }
+            var windowsLoaderMethods = platformSpecificHelpers.WindowsLoaderMethods;
+            var unixLoaderMethods = platformSpecificHelpers.UnixLoaderMethods;
 
-        public void Initialize()
-        {
-            var windowsLoaderMethods = this.platformSpecificHelpers.WindowsLoaderMethods;
-            var unixLoaderMethods = this.platformSpecificHelpers.UnixLoaderMethods;
+            var isUnix = CreateIsUnixField(host, typeDef);
 
-            var isUnix = CreateIsUnixField(this.host, this.typeDef);
+            var isUnixStaticFunction = CreateIsUnixStaticFunction(host, typeDef, getOSVersion, getPlatform);
+            var cctor = CreateCCtor(host, typeDef, isUnix, isUnixStaticFunction);
 
-            var isUnixStaticFunction = CreateIsUnixStaticFunction(this.host, this.typeDef, this.GetOSVersion, this.GetPlatform);
-            var cctor = CreateCCtor(this.host, this.typeDef, isUnix, isUnixStaticFunction);
-
-            var loadlibrary = CreateLoadLibrary(this.host, this.typeDef, windowsLoaderMethods.LoadLibrary, unixLoaderMethods.LoadLibrary, isUnix);
+            var loadlibrary = CreateLoadLibrary(host, typeDef, windowsLoaderMethods.LoadLibrary, unixLoaderMethods.LoadLibrary, isUnix);
             this.LoadLibrary = loadlibrary;
 
-            var freelibrary = CreateFreeLibrary(this.host, this.typeDef, windowsLoaderMethods.FreeLibrary, unixLoaderMethods.FreeLibrary, isUnix);
+            var freelibrary = CreateFreeLibrary(host, typeDef, windowsLoaderMethods.FreeLibrary, unixLoaderMethods.FreeLibrary, isUnix);
             this.FreeLibrary = freelibrary;
 
-            var getprocaddress = CreateGetProcAddress(this.host, this.typeDef, windowsLoaderMethods.GetProcAddress, unixLoaderMethods.GetProcAddress, isUnix);
+            var getprocaddress = CreateGetProcAddress(host, typeDef, windowsLoaderMethods.GetProcAddress, unixLoaderMethods.GetProcAddress, isUnix);
             this.GetProcAddress = getprocaddress;
 
             var getLength = new Microsoft.Cci.MutableCodeModel.MethodReference
@@ -158,16 +147,13 @@
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemInt32 } }
             };
 
-            var stringtoansi = CreateStringToAnsi(this.host, this.typeDef, getLength, getChars);
+            var stringtoansi = CreateStringToAnsi(host, typeDef, getLength, getChars);
             this.StringToAnsiByteArray = stringtoansi;
 
-            this.typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, freelibrary, getprocaddress, stringtoansi };
-            this.typeDef.Fields = new List<IFieldDefinition> { isUnix };
-        }
+            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, freelibrary, getprocaddress, stringtoansi };
+            typeDef.Fields = new List<IFieldDefinition> { isUnix };
 
-        public void Initialize2()
-        {
-            this.typeDef.Methods.AddRange(this.platformSpecificHelpers.Methods);
+            typeDef.Methods.AddRange(platformSpecificHelpers.Methods);
         }
 
         public ITypeReference SystemRuntimeInteropServicesMarshal { get; }
@@ -175,18 +161,14 @@
         public ITypeReference SystemRuntimeCompilerServicesRuntimeHelpers { get; }
 
         public ITypeReference PInvokeHelpers { get; }
-
-        public IMethodReference GetOSVersion { get; }
-
-        public IMethodReference GetPlatform { get; }
-
+        
         public IMethodReference StringToAnsiByteArray { get; set; }
 
         public IMethodReference LoadLibrary { get; set; }
 
         public IMethodReference GetProcAddress { get; set; }
 
-        public IMethodReference FreeLibrary { get; set; }
+        private IMethodReference FreeLibrary { get; set; }
         
         private static IMethodDefinition CreateLoadLibrary(IMetadataHost host, ITypeDefinition typeDef, IMethodReference windowsLoadLibrary, IMethodReference unixLoadLibrary, IFieldReference isUnix)
         {
