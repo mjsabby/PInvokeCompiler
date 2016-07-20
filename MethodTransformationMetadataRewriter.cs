@@ -74,7 +74,7 @@
 
         private static MethodDefinition CreateRegularMethodDefinitionFromPInvokeMethodDefinition(IMethodDefinition methodDefinition, ITypeReference intPtrType)
         {
-            var returnType = !IsBlittableType(methodDefinition.Type) ? intPtrType : methodDefinition.Type;
+            var returnType = !IsBlittableType(methodDefinition.Type) || methodDefinition.ReturnValueIsByRef ? intPtrType : methodDefinition.Type; // TODO: return byref handled properly?
 
             var nativeMethodDef = new MethodDefinition
             {
@@ -135,6 +135,8 @@
             switch (typeCode)
             {
                 case PrimitiveTypeCode.Void:
+                case PrimitiveTypeCode.Int8:
+                case PrimitiveTypeCode.UInt8:
                 case PrimitiveTypeCode.Int16:
                 case PrimitiveTypeCode.UInt16:
                 case PrimitiveTypeCode.Int32:

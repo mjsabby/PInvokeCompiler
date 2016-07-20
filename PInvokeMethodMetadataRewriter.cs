@@ -22,6 +22,10 @@
 
         private readonly IMethodReference ptrToStringAnsi;
 
+        private readonly IMethodReference getTypeFromHandle;
+
+        private readonly IMethodReference getDelegateForFunctionPointer;
+
         private readonly ITypeReference skipTypeReference;
 
         public PInvokeMethodMetadataRewriter(InteropHelperReferences interopHelperReferences, IMetadataHost host, IMethodTransformationMetadataProvider metadataProvider)
@@ -79,6 +83,22 @@
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr } }
             };
 
+            this.getTypeFromHandle = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("GetTypeFromHandle"),
+                ContainingType = host.PlatformType.SystemType,
+                Type = host.PlatformType.SystemType,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemRuntimeTypeHandle } }
+            };
+
+            this.getDelegateForFunctionPointer = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("GetDelegateForFunctionPointer"),
+                ContainingType = interopHelperReferences.SystemRuntimeInteropServicesMarshal,
+                Type = host.PlatformType.SystemDelegate,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemType } }
+            };
+
             this.skipTypeReference = interopHelperReferences.PInvokeHelpers;
         }
 
@@ -123,7 +143,7 @@
 
         private static void EmitStringReturnMarshalling(ILGenerator ilGenerator, IMethodReference ptrToStringAnsi)
         {
-            ilGenerator.Emit(OperationCode.Call, ptrToStringAnsi);
+            ilGenerator.Emit(OperationCode.Call, ptrToStringAnsi); // TODO: support Unicode
         }
 
         private static void EmitArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType)
@@ -212,9 +232,18 @@
 
         private void ReturnMarshalling(ILGenerator ilGenerator, IMethodDefinition methodDefinition)
         {
-            if (TypeHelper.TypesAreEquivalent(methodDefinition.Type, host.PlatformType.SystemString))
+            var returnType = methodDefinition.Type;
+
+            if (TypeHelper.TypesAreEquivalent(returnType, host.PlatformType.SystemString))
             {
                 EmitStringReturnMarshalling(ilGenerator, this.ptrToStringAnsi);
+            }
+            else if (returnType.ResolvedType.IsDelegate)
+            {
+                ilGenerator.Emit(OperationCode.Ldtoken, returnType);
+                ilGenerator.Emit(OperationCode.Call, this.getTypeFromHandle);
+                ilGenerator.Emit(OperationCode.Call, this.getDelegateForFunctionPointer);
+                ilGenerator.Emit(OperationCode.Castclass, returnType);
             }
         }
 
@@ -243,9 +272,9 @@
                         break;
                 }
 
-                if (parameter.Type is IArrayType)
+                if (parameter.Type.ResolvedType is IArrayType)
                 {
-                    EmitArrayMarshalling(locals, ilGenerator, (IArrayType)parameter.Type);
+                    EmitArrayMarshalling(locals, ilGenerator, (IArrayType)parameter.Type.ResolvedType);
                 }
                 else if (parameter.IsByReference)
                 {
