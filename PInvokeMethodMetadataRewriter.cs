@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Runtime.InteropServices;
     using Microsoft.Cci;
     using Microsoft.Cci.MutableCodeModel;
@@ -26,8 +27,12 @@
 
         private readonly IMethodReference getDelegateForFunctionPointer;
 
-        private readonly ITypeReference skipTypeReference;
+        private readonly IMethodReference stringArrayMarshallingProlog;
 
+        private readonly IMethodReference stringArrayMarshallingEpilog;
+
+        private readonly ITypeReference skipTypeReference;
+        
         public PInvokeMethodMetadataRewriter(InteropHelperReferences interopHelperReferences, IMetadataHost host, IMethodTransformationMetadataProvider metadataProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
@@ -99,6 +104,8 @@
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemType } }
             };
 
+            this.stringArrayMarshallingProlog = interopHelperReferences.StringArrayMarshallingProlog;
+            this.stringArrayMarshallingEpilog = interopHelperReferences.StringArrayMarshallingEpilog;
             this.skipTypeReference = interopHelperReferences.PInvokeHelpers;
         }
 
@@ -138,15 +145,15 @@
             var byteArrayType = new VectorTypeReference { ElementType = byteType, Rank = 1 };
             
             ilGenerator.Emit(OperationCode.Call, stringToAnsiByteArray);
-            EmitArrayMarshalling(locals, ilGenerator, byteArrayType.ResolvedArrayType);
+            EmitBlittableTypeArrayMarshalling(locals, ilGenerator, byteArrayType.ResolvedArrayType);
         }
 
         private static void EmitStringReturnMarshalling(ILGenerator ilGenerator, IMethodReference ptrToStringAnsi)
         {
             ilGenerator.Emit(OperationCode.Call, ptrToStringAnsi); // TODO: support Unicode
         }
-
-        private static void EmitArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType)
+        
+        private static void EmitBlittableTypeArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType)
         {
             var nullCaseLabel = new ILGeneratorLabel();
 
@@ -212,6 +219,7 @@
 
             var fieldDef = transformationMetadata.FunctionPointer;
             var locals = new List<ILocalDefinition>();
+            var paramToLocalMap = new Dictionary<IParameterDefinition, ILocalDefinition>();
 
             ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);
             ilGenerator.Emit(OperationCode.Ldsfld, this.intPtrZero);
@@ -220,10 +228,11 @@
             ilGenerator.Emit(OperationCode.Call, transformationMetadata.InitializeMethod);
             ilGenerator.Emit(OperationCode.Stsfld, fieldDef);
             ilGenerator.MarkLabel(label);
-            this.LoadArguments(locals, ilGenerator, methodDefinition.ParameterCount, i => methodDefinition.Parameters[i]);
+            this.LoadArguments(locals, paramToLocalMap, ilGenerator, methodDefinition.ParameterCount, i => methodDefinition.Parameters[i]);
             ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);
             ilGenerator.Emit(OperationCode.Call, transformationMetadata.NativeMethod);
             this.ReturnMarshalling(ilGenerator, methodDefinition);
+            this.PostprocessNonBlittableArrayArguments(methodDefinition, locals, ilGenerator);
             ilGenerator.Emit(OperationCode.Ret);
 
             var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, true, (ushort)((methodDefinition.ParameterCount + 1) * 2), methodDefinition, locals, new List<ITypeDefinition>());
@@ -247,34 +256,121 @@
             }
         }
 
-        private void LoadArguments(List<ILocalDefinition> locals, ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
+        private void PostprocessNonBlittableArrayArguments(IMethodDefinition methodDefinition, List<ILocalDefinition> locals, ILGenerator ilGenerator)
         {
+            bool hasReturnValue = methodDefinition.Type != this.host.PlatformType.SystemVoid;
+            var listOfStringArrayMarshalledLocals = new List<ILocalDefinition>();
+
+            if (IsAnyParameterNonBlittableArray(methodDefinition))
+            {
+                var retLocal = new LocalDefinition
+                {
+                    IsPinned = false,
+                    Type = methodDefinition.Type
+                };
+
+                if (hasReturnValue)
+                {
+                    locals.Add(retLocal);
+                    ilGenerator.Emit(OperationCode.Stloc, retLocal);
+                }
+
+                var exitLabel = new ILGeneratorLabel();
+                ilGenerator.Emit(OperationCode.Leave, exitLabel);
+                ilGenerator.BeginFinallyBlock();
+
+                foreach (var elem in listOfStringArrayMarshalledLocals)
+                {
+                    ilGenerator.Emit(OperationCode.Ldloc, elem);
+                    ilGenerator.Emit(OperationCode.Call, this.stringArrayMarshallingEpilog);
+                }
+
+                ilGenerator.Emit(OperationCode.Endfinally);
+                ilGenerator.EndTryBody();
+                ilGenerator.MarkLabel(exitLabel);
+
+                if (hasReturnValue)
+                {
+                    ilGenerator.Emit(OperationCode.Ldloc, retLocal);
+                }
+            }
+        }
+
+        private void PreprocessNonBlittableArrayArguments(List<ILocalDefinition> locals, Dictionary<IParameterDefinition, ILocalDefinition> paramToLocalMap, ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
+        {
+            bool beginTryBody = false;
             for (int i = 0; i < argumentCount; ++i)
             {
                 var parameter = parameterProvider(i);
-
-                switch (i)
+                var arrayType = parameter.Type.ResolvedType as IArrayType;
+                if (arrayType != null)
                 {
-                    case 0:
-                        ilGenerator.Emit(OperationCode.Ldarg_0);
-                        break;
-                    case 1:
-                        ilGenerator.Emit(OperationCode.Ldarg_1);
-                        break;
-                    case 2:
-                        ilGenerator.Emit(OperationCode.Ldarg_2);
-                        break;
-                    case 3:
-                        ilGenerator.Emit(OperationCode.Ldarg_3);
-                        break;
-                    default:
-                        ilGenerator.Emit(i <= byte.MaxValue ? OperationCode.Ldarg_S : OperationCode.Ldarg, parameter);
-                        break;
-                }
+                    if (TypeHelper.TypesAreEquivalent(arrayType.ElementType, this.host.PlatformType.SystemString))
+                    {
+                        var intPtrArrayType = new VectorTypeReference { ElementType = this.host.PlatformType.SystemIntPtr, Rank = 1 }.ResolvedArrayType;
 
+                        Ldarg(ilGenerator, parameter, i);
+                        ilGenerator.Emit(OperationCode.Ldlen);
+                        ilGenerator.Emit(OperationCode.Conv_I4); // I guess this breaks in large gc array mode
+                        ilGenerator.Emit(OperationCode.Newarr, intPtrArrayType);
+
+                        // IntPtr[]
+                        var intPtrArray = new LocalDefinition
+                        {
+                            IsPinned = false,
+                            Type = intPtrArrayType
+                        };
+
+                        locals.Add(intPtrArray);
+                        paramToLocalMap.Add(parameter, intPtrArray);
+
+                        ilGenerator.Emit(OperationCode.Stloc, intPtrArray);
+                        beginTryBody = true;
+                    }
+                }
+            }
+
+            if (beginTryBody)
+            {
+                ilGenerator.BeginTryBody();
+            }
+        }
+
+        private void EmitNonBlittableArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType, IParameterDefinition parameter, Dictionary<IParameterDefinition, ILocalDefinition> paramToLocalMap)
+        {
+            if (TypeHelper.TypesAreEquivalent(arrayType.ElementType, this.host.PlatformType.SystemString))
+            {
+                ilGenerator.Emit(OperationCode.Ldloc, paramToLocalMap[parameter]);
+                ilGenerator.Emit(OperationCode.Call, this.stringArrayMarshallingProlog);
+                EmitBlittableTypeArrayMarshalling(locals, ilGenerator, new VectorTypeReference { ElementType = this.host.PlatformType.SystemIntPtr, Rank = 1 }.ResolvedArrayType);
+            }
+            else
+            {
+                throw new Exception("NYI");
+            }
+        }
+
+        private void LoadArguments(List<ILocalDefinition> locals, Dictionary<IParameterDefinition, ILocalDefinition> paramToLocalMap, ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
+        {
+            this.PreprocessNonBlittableArrayArguments(locals, paramToLocalMap, ilGenerator, argumentCount, parameterProvider);
+
+            for (int i = 0; i < argumentCount; ++i)
+            {
+                var parameter = parameterProvider(i);
+                Ldarg(ilGenerator, parameter, i);
+                
                 if (parameter.Type.ResolvedType is IArrayType)
                 {
-                    EmitArrayMarshalling(locals, ilGenerator, (IArrayType)parameter.Type.ResolvedType);
+                    var arrayType = (IArrayType)parameter.Type.ResolvedType;
+
+                    if (IsBlittableArray(arrayType))
+                    {
+                        EmitBlittableTypeArrayMarshalling(locals, ilGenerator, arrayType);
+                    }
+                    else
+                    {
+                        EmitNonBlittableArrayMarshalling(locals, ilGenerator, arrayType, parameter, paramToLocalMap);
+                    }
                 }
                 else if (parameter.IsByReference)
                 {
@@ -295,6 +391,117 @@
                         EmitAnsiStringMarshalling(locals, ilGenerator, this.stringToAnsiArray, this.host.PlatformType);
                     }
                 }
+            }
+        }
+
+        private static void Ldarg(ILGenerator ilGenerator, IParameterDefinition parameter, int i)
+        {
+            switch (i)
+            {
+                case 0:
+                    ilGenerator.Emit(OperationCode.Ldarg_0);
+                    break;
+                case 1:
+                    ilGenerator.Emit(OperationCode.Ldarg_1);
+                    break;
+                case 2:
+                    ilGenerator.Emit(OperationCode.Ldarg_2);
+                    break;
+                case 3:
+                    ilGenerator.Emit(OperationCode.Ldarg_3);
+                    break;
+                default:
+                    ilGenerator.Emit(i <= byte.MaxValue ? OperationCode.Ldarg_S : OperationCode.Ldarg, parameter);
+                    break;
+            }
+        }
+
+        private static bool IsAnyParameterNonBlittableArray(IMethodDefinition methodDefinition)
+        {
+            return methodDefinition.Parameters.Any(parameter => IsNonBlittableArray(parameter.Type));
+        }
+
+        private static bool IsNonBlittableArray(ITypeReference typeRef)
+        {
+            if (typeRef.ResolvedType is IArrayType)
+            {
+                return !IsBlittableArray(typeRef);
+            }
+
+            return false;
+        }
+
+        private static bool IsBlittableArray(ITypeReference typeRef)
+        {
+            var arrayType = typeRef.ResolvedType as IArrayType;
+            var elementType = arrayType?.ElementType;
+
+            if (arrayType?.Rank == 1 && IsBlittableType(elementType))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsBlittableType(ITypeReference typeRef)
+        {
+            if (IsPrimitive(typeRef))
+            {
+                return true;
+            }
+
+            if (typeRef.IsValueType)
+            {
+                var typeDef = typeRef.ResolvedType;
+
+                if (string.Equals(typeDef.ToString(), "Microsoft.Cci.DummyNamespaceTypeDefinition"))
+                {
+                    throw new Exception($"Unable to find type def for {typeRef}. The assembly this type is defined in was not loaded");
+                }
+
+                foreach (var fieldInfo in typeDef.Fields)
+                {
+                    if (fieldInfo.IsStatic)
+                    {
+                        continue;
+                    }
+
+                    if (fieldInfo.IsMarshalledExplicitly || !IsBlittableType(fieldInfo.Type))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+        
+        private static bool IsPrimitive(ITypeReference typeRef)
+        {
+            var typeCode = typeRef.TypeCode;
+
+            switch (typeCode)
+            {
+                case PrimitiveTypeCode.Void:
+                case PrimitiveTypeCode.Int8:
+                case PrimitiveTypeCode.UInt8:
+                case PrimitiveTypeCode.Int16:
+                case PrimitiveTypeCode.UInt16:
+                case PrimitiveTypeCode.Int32:
+                case PrimitiveTypeCode.UInt32:
+                case PrimitiveTypeCode.Int64:
+                case PrimitiveTypeCode.UInt64:
+                case PrimitiveTypeCode.IntPtr:
+                case PrimitiveTypeCode.UIntPtr:
+                case PrimitiveTypeCode.Float32:
+                case PrimitiveTypeCode.Float64:
+                case PrimitiveTypeCode.Pointer:
+                    return true;
+                default:
+                    return false;
             }
         }
     }

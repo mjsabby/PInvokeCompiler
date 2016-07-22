@@ -149,8 +149,44 @@
 
             var stringtoansi = CreateStringToAnsi(host, typeDef, getLength, getChars);
             this.StringToAnsiByteArray = stringtoansi;
+            
+            var stringToGlobalAnsi = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("StringToHGlobalAnsi"),
+                ContainingType = this.SystemRuntimeInteropServicesMarshal,
+                Type = host.PlatformType.SystemIntPtr,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Type = host.PlatformType.SystemString } }
+            };
 
-            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, freelibrary, getprocaddress, stringtoansi };
+            var stringarraymarshallingprolog = CreateStringArrayMarshallingProlog(host, typeDef, stringToGlobalAnsi);
+            this.StringArrayMarshallingProlog = stringarraymarshallingprolog;
+
+            var intPtrZero = new FieldReference
+            {
+                Name = host.NameTable.GetNameFor("Zero"),
+                ContainingType = host.PlatformType.SystemIntPtr,
+                Type = host.PlatformType.SystemIntPtr
+            };
+
+            var intPtrOpInequality = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.OpInequality,
+                ContainingType = host.PlatformType.SystemIntPtr,
+                Type = host.PlatformType.SystemBoolean,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemIntPtr } }
+            };
+
+            var freeHGlobal = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("FreHGlobal"),
+                ContainingType = this.SystemRuntimeInteropServicesMarshal,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr } }
+            };
+
+            var stringarraymarshallingepilog = CreateStringArrayMarshallingEpilog(host, typeDef, intPtrZero, intPtrOpInequality, freeHGlobal);
+            this.StringArrayMarshallingEpilog = stringarraymarshallingepilog;
+
+            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, freelibrary, getprocaddress, stringtoansi, stringarraymarshallingprolog, stringarraymarshallingepilog };
             typeDef.Fields = new List<IFieldDefinition> { isUnix };
 
             typeDef.Methods.AddRange(platformSpecificHelpers.Methods);
@@ -162,13 +198,17 @@
 
         public ITypeReference PInvokeHelpers { get; }
         
-        public IMethodReference StringToAnsiByteArray { get; set; }
+        public IMethodReference StringToAnsiByteArray { get; private set; }
 
-        public IMethodReference LoadLibrary { get; set; }
+        public IMethodReference StringArrayMarshallingProlog { get; private set; }
 
-        public IMethodReference GetProcAddress { get; set; }
+        public IMethodReference StringArrayMarshallingEpilog { get; private set; }
 
-        private IMethodReference FreeLibrary { get; set; }
+        public IMethodReference LoadLibrary { get; private set; }
+
+        public IMethodReference GetProcAddress { get; private set; }
+
+        private IMethodReference FreeLibrary { get; }
         
         private static IMethodDefinition CreateLoadLibrary(IMetadataHost host, ITypeDefinition typeDef, IMethodReference windowsLoadLibrary, IMethodReference unixLoadLibrary, IFieldReference isUnix)
         {
@@ -422,6 +462,116 @@
             ilGenerator.Emit(OperationCode.Ret);
 
             methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 8, methodDefinition, locals, new List<ITypeDefinition>());
+
+            return methodDefinition;
+        }
+
+        private static IMethodDefinition CreateStringArrayMarshallingProlog(IMetadataHost host, ITypeDefinition typeDef, IMethodReference stringToHGlobalAnsi)
+        {
+            var stringArrayType = new VectorTypeReference { ElementType = host.PlatformType.SystemString, Rank = 1 };
+            var intPtrArrayType = new VectorTypeReference { ElementType = host.PlatformType.SystemIntPtr, Rank = 1 };
+
+            MethodDefinition methodDefinition = new MethodDefinition
+            {
+                ContainingTypeDefinition = typeDef,
+                IsStatic = true,
+                Visibility = TypeMemberVisibility.Assembly,
+                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = stringArrayType }, new ParameterDefinition { Index = 1, Type = intPtrArrayType } },
+                Name = host.NameTable.GetNameFor("StringArrayMarshallingProlog")
+            };
+
+            var size = new LocalDefinition { Type = host.PlatformType.SystemInt32 };
+            var index = new LocalDefinition { Type = host.PlatformType.SystemInt32 };
+
+            var locals = new List<ILocalDefinition> { size, index };
+
+            var ilGenerator = new ILGenerator(host, methodDefinition);
+            var loopStart = new ILGeneratorLabel();
+            var loopBackEdge = new ILGeneratorLabel();
+
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Ldlen);
+            ilGenerator.Emit(OperationCode.Conv_I4);
+            ilGenerator.Emit(OperationCode.Stloc_0);
+            ilGenerator.Emit(OperationCode.Ldc_I4_0);
+            ilGenerator.Emit(OperationCode.Stloc_1);
+            ilGenerator.Emit(OperationCode.Br_S, loopBackEdge);
+            ilGenerator.MarkLabel(loopStart);
+            ilGenerator.Emit(OperationCode.Ldarg_1);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldelem_Ref);
+            ilGenerator.Emit(OperationCode.Call, stringToHGlobalAnsi);
+            ilGenerator.Emit(OperationCode.Stelem_I);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldc_I4_1);
+            ilGenerator.Emit(OperationCode.Add);
+            ilGenerator.Emit(OperationCode.Stloc_1);
+            ilGenerator.MarkLabel(loopBackEdge);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldloc_0);
+            ilGenerator.Emit(OperationCode.Blt_S, loopStart);
+            ilGenerator.Emit(OperationCode.Ret);
+
+            methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 4, methodDefinition, locals, new List<ITypeDefinition>());
+
+            return methodDefinition;
+        }
+
+        private static IMethodDefinition CreateStringArrayMarshallingEpilog(IMetadataHost host, ITypeDefinition typeDef, IFieldReference intPtrZero, IMethodReference intPtrOpInequality, IMethodReference freeHGlobal)
+        {
+            var intPtrArrayType = new VectorTypeReference { ElementType = host.PlatformType.SystemIntPtr, Rank = 1 };
+
+            MethodDefinition methodDefinition = new MethodDefinition
+            {
+                ContainingTypeDefinition = typeDef,
+                IsStatic = true,
+                Visibility = TypeMemberVisibility.Assembly,
+                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = intPtrArrayType } },
+                Name = host.NameTable.GetNameFor("StringArrayMarshallingEpilog")
+            };
+
+            var size = new LocalDefinition { Type = host.PlatformType.SystemInt32 };
+            var index = new LocalDefinition { Type = host.PlatformType.SystemInt32 };
+
+            var locals = new List<ILocalDefinition> { size, index };
+
+            var ilGenerator = new ILGenerator(host, methodDefinition);
+            var loopStart = new ILGeneratorLabel();
+            var loopBackEdge = new ILGeneratorLabel();
+            var exitLabel = new ILGeneratorLabel();
+
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Ldlen);
+            ilGenerator.Emit(OperationCode.Conv_I4);
+            ilGenerator.Emit(OperationCode.Stloc_0);
+            ilGenerator.Emit(OperationCode.Ldc_I4_0);
+            ilGenerator.Emit(OperationCode.Stloc_1);
+            ilGenerator.Emit(OperationCode.Br_S, loopBackEdge);
+            ilGenerator.MarkLabel(loopStart);
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldelem_I);
+            ilGenerator.Emit(OperationCode.Ldsfld, intPtrZero);
+            ilGenerator.Emit(OperationCode.Call, intPtrOpInequality);
+            ilGenerator.Emit(OperationCode.Brfalse_S, exitLabel);
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldelem_I);
+            ilGenerator.Emit(OperationCode.Call, freeHGlobal);
+            ilGenerator.MarkLabel(exitLabel);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldc_I4_1);
+            ilGenerator.Emit(OperationCode.Add);
+            ilGenerator.Emit(OperationCode.Stloc_1);
+            ilGenerator.MarkLabel(loopBackEdge);
+            ilGenerator.Emit(OperationCode.Ldloc_1);
+            ilGenerator.Emit(OperationCode.Ldloc_0);
+            ilGenerator.Emit(OperationCode.Blt_S, loopStart);
+            ilGenerator.Emit(OperationCode.Ret);
+
+            methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 2, methodDefinition, locals, new List<ITypeDefinition>());
 
             return methodDefinition;
         }
