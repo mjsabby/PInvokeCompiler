@@ -343,8 +343,10 @@
         {
             if (TypeHelper.TypesAreEquivalent(arrayType.ElementType, this.host.PlatformType.SystemString))
             {
-                ilGenerator.Emit(OperationCode.Ldloc, paramToLocalMap[parameter]);
+                var intPtrLocal = paramToLocalMap[parameter];
+                ilGenerator.Emit(OperationCode.Ldloc, intPtrLocal);
                 ilGenerator.Emit(OperationCode.Call, this.stringArrayMarshallingProlog);
+                ilGenerator.Emit(OperationCode.Ldloc, intPtrLocal);
                 EmitBlittableTypeArrayMarshalling(locals, ilGenerator, new VectorTypeReference { ElementType = this.host.PlatformType.SystemIntPtr, Rank = 1 }.ResolvedArrayType);
             }
             else
