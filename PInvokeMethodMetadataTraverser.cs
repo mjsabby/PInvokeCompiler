@@ -33,7 +33,7 @@
                     throw new Exception($"Return type {methodDefinition.Type} is not supported for marshalling");   
                 }
 
-                if (!AreParametersSupported(methodDefinition))
+                if (!methodDefinition.Parameters.All(IsParameterSupported))
                 {
                     throw new Exception($"Parameter types {methodDefinition} are not supported for marshalling");
                 }
@@ -69,68 +69,7 @@
             HashSet<IModuleReference> moduleRefs;
             return this.moduleRefsTable.TryGetValue(typeDefinition, out moduleRefs) ? moduleRefs : Enumerable.Empty<IModuleReference>();
         }
-
-        private static bool IsBlittableType(ITypeReference typeRef)
-        {
-            if (IsPrimitive(typeRef))
-            {
-                return true;
-            }
-
-            if (typeRef.IsValueType)
-            {
-                var typeDef = typeRef.ResolvedType;
-
-                if (string.Equals(typeDef.ToString(), "Microsoft.Cci.DummyNamespaceTypeDefinition"))
-                {
-                    throw new Exception($"Unable to find type def for {typeRef}. The assembly this type is defined in was not loaded");
-                }
-
-                foreach (var fieldInfo in typeDef.Fields)
-                {
-                    if (fieldInfo.IsStatic)
-                    {
-                        continue;
-                    }
-
-                    if (fieldInfo.IsMarshalledExplicitly || !IsBlittableType(fieldInfo.Type))
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool IsPrimitive(ITypeReference typeRef)
-        {
-            var typeCode = typeRef.TypeCode;
-
-            switch (typeCode)
-            {
-                case PrimitiveTypeCode.Void:
-                case PrimitiveTypeCode.Int8:
-                case PrimitiveTypeCode.UInt8:
-                case PrimitiveTypeCode.Int16:
-                case PrimitiveTypeCode.UInt16:
-                case PrimitiveTypeCode.Int32:
-                case PrimitiveTypeCode.UInt32:
-                case PrimitiveTypeCode.Int64:
-                case PrimitiveTypeCode.UInt64:
-                case PrimitiveTypeCode.IntPtr:
-                case PrimitiveTypeCode.UIntPtr:
-                case PrimitiveTypeCode.Float32:
-                case PrimitiveTypeCode.Float64:
-                case PrimitiveTypeCode.Pointer:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
+        
         private static bool IsReturnTypeSupported(IMethodDefinition methodDefinition)
         {
             if (methodDefinition.ReturnValueIsMarshalledExplicitly)
@@ -139,25 +78,12 @@
             }
 
             var returnType = methodDefinition.Type;
-            if (IsBlittableType(returnType) || IsDelegate(returnType) || IsString(returnType))
+            if (returnType.IsBlittable() || returnType.IsDelegate() || returnType.IsString())
             {
                 return true;
             }
 
             return false;
-        }
-
-        private static bool AreParametersSupported(IMethodDefinition methodDefinition)
-        {
-            foreach (var parameter in methodDefinition.Parameters)
-            {
-                if (!IsParameterSupported(parameter))
-                {
-                    return false;
-                }
-            }
-
-            return true;
         }
 
         private static bool IsParameterSupported(IParameterDefinition parameterDefinition)
@@ -172,34 +98,20 @@
                 {
                     case UnmanagedType.LPWStr:
                     case UnmanagedType.LPStr:
-                        return IsString(parameterType);
+                        return parameterType.IsString();
                     case UnmanagedType.LPArray:
-                        return IsBlittableArray(parameterType);
+                        return parameterType.IsBlittable();
                 }
             }
 
-            // primitives, value types, delegates and strings -- these last two have special marshalling we take care of
-            if (IsBlittableType(parameterType) || IsDelegate(parameterType) || IsString(parameterType))
+            // blittable, delegates and strings -- these last two have special marshalling we take care of
+            if (parameterType.IsBlittable() || parameterType.IsDelegate() || parameterType.IsString())
             {
                 return true;
             }
 
-            // array not being marshalled as LPArray, but it could be a primitive array
-            if (IsBlittableArray(parameterType))
-            {
-                var resolvedType = (IArrayType)parameterType.ResolvedType;
-                var elementType = resolvedType.ElementType.ResolvedType;
-
-                if (IsPrimitive(resolvedType) || (elementType.Fields.Count(t => !t.IsStatic) == 1 && IsPrimitive(elementType.Fields.First(t => !t.IsStatic).Type)))
-                {
-                    return true;
-                }
-
-                return false;
-            }
-
             // we also support string[] since it's so common, by converting it to IntPtr[] in a try/finally
-            if (IsStringArray(parameterType))
+            if (parameterType.IsStringArray())
             {
                 return true;
             }
@@ -209,39 +121,5 @@
             return false;
         }
         
-        private static bool IsBlittableArray(ITypeReference typeRef)
-        {
-            var arrayType = typeRef.ResolvedType as IArrayType;
-            var elementType = arrayType?.ElementType;
-
-            if (arrayType?.Rank == 1 && IsBlittableType(elementType))
-            {
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool IsDelegate(ITypeReference typeReference)
-        {
-            return typeReference.ResolvedType.IsDelegate;
-        }
-
-        private static bool IsString(ITypeReference typeReference)
-        {
-            return typeReference.ToString() == "System.String";
-        }
-
-        private static bool IsStringArray(ITypeReference typeRef)
-        {
-            var arrayType = typeRef.ResolvedType as IArrayType;
-            var elementType = arrayType?.ElementType;
-            if (arrayType?.Rank == 1 && IsString(elementType))
-            {
-                return true;
-            }
-
-            return false;
-        }
     }
 }
