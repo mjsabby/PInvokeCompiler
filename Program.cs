@@ -42,9 +42,33 @@
                 var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(interopHelperReference, host, methodTransformationMetadataRewriter);
                 pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
 
-                using (var stream = File.Create(outputFile))
+                PdbReader pdbReader = null;
+                string pdbFile = Path.ChangeExtension(inputFile, "pdb");
+                if (File.Exists(pdbFile))
                 {
-                    PeWriter.WritePeToStream(mutable, host, stream);
+                    using (var pdbStream = File.OpenRead(pdbFile))
+                    {
+                        pdbReader = new PdbReader(pdbStream, host);
+                    }
+                }
+
+                using (pdbReader)
+                {
+                    using (var stream = File.Create(outputFile))
+                    {
+                        if (pdbReader == null)
+                        {
+                            PeWriter.WritePeToStream(mutable, host, stream);
+                        }
+                        else
+                        {
+                            var localScopeProvider = new ILGenerator.LocalScopeProvider(pdbReader);
+                            using (var pdbWriter = new PdbWriter(Path.ChangeExtension(outputFile, "pdb"), pdbReader))
+                            {
+                                PeWriter.WritePeToStream(mutable, host, stream, pdbReader, localScopeProvider, pdbWriter);
+                            }
+                        }
+                    }
                 }
             }
         }

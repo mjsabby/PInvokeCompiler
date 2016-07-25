@@ -178,8 +178,9 @@
 
             var freeHGlobal = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
-                Name = host.NameTable.GetNameFor("FreHGlobal"),
+                Name = host.NameTable.GetNameFor("FreeHGlobal"),
                 ContainingType = this.SystemRuntimeInteropServicesMarshal,
+                Type = host.PlatformType.SystemVoid,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr } }
             };
 
@@ -477,6 +478,7 @@
                 IsStatic = true,
                 Visibility = TypeMemberVisibility.Assembly,
                 Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = stringArrayType }, new ParameterDefinition { Index = 1, Type = intPtrArrayType } },
+                Type = host.PlatformType.SystemVoid,
                 Name = host.NameTable.GetNameFor("StringArrayMarshallingProlog")
             };
 
@@ -528,6 +530,7 @@
                 ContainingTypeDefinition = typeDef,
                 IsStatic = true,
                 Visibility = TypeMemberVisibility.Assembly,
+                Type = host.PlatformType.SystemVoid,
                 Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = intPtrArrayType } },
                 Name = host.NameTable.GetNameFor("StringArrayMarshallingEpilog")
             };
