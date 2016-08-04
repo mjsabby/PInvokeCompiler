@@ -86,19 +86,19 @@
                 this.SystemRuntimeCompilerServicesRuntimeHelpers = CreateTypeReference(host, runtimeAssembly, "System.Runtime.CompilerServices.RuntimeHelpers");
             }
 
-            var getOSVersion = new Microsoft.Cci.MutableCodeModel.MethodReference
+            var getNewLine = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
-                Name = host.NameTable.GetNameFor("get_OSVersion"),
+                Name = host.NameTable.GetNameFor("get_NewLine"),
                 ContainingType = systemEnvironment,
-                Type = systemOperatingSystem
+                Type = host.PlatformType.SystemString
             };
 
-            var getPlatform = new Microsoft.Cci.MutableCodeModel.MethodReference
+            var stringOpEquality = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
-                Name = host.NameTable.GetNameFor("get_Platform"),
-                ContainingType = systemOperatingSystem,
-                CallingConvention = CallingConvention.HasThis,
-                Type = systemPlatformID,
+                Name = host.NameTable.OpEquality,
+                ContainingType = host.PlatformType.SystemString,
+                Type = host.PlatformType.SystemBoolean,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString } }
             };
 
             var rootUnitNamespace = new RootUnitNamespace();
@@ -118,7 +118,7 @@
 
             var isUnix = CreateIsUnixField(host, typeDef);
 
-            var isUnixStaticFunction = CreateIsUnixStaticFunction(host, typeDef, getOSVersion, getPlatform);
+            var isUnixStaticFunction = CreateIsUnixStaticFunction(host, typeDef, getNewLine, stringOpEquality);
             var cctor = CreateCCtor(host, typeDef, isUnix, isUnixStaticFunction);
 
             var loadlibrary = CreateLoadLibrary(host, typeDef, windowsLoaderMethods.LoadLibrary, unixLoaderMethods.LoadLibrary, isUnix);
@@ -351,7 +351,7 @@
             return methodDefinition;
         }
 
-        private static IMethodDefinition CreateIsUnixStaticFunction(IMetadataHost host, ITypeDefinition typeDef, IMethodReference getOSVersion, IMethodReference getPlatform)
+        private static IMethodDefinition CreateIsUnixStaticFunction(IMetadataHost host, ITypeDefinition typeDef, IMethodReference getNewLine, IMethodReference stringOpEquality)
         {
             var methodDefinition = new MethodDefinition
             {
@@ -365,17 +365,9 @@
             var label = new ILGeneratorLabel();
 
             var ilGenerator = new ILGenerator(host, methodDefinition);
-            ilGenerator.Emit(OperationCode.Call, getOSVersion);
-            ilGenerator.Emit(OperationCode.Callvirt, getPlatform);
-            ilGenerator.Emit(OperationCode.Ldc_I4_6);
-            ilGenerator.Emit(OperationCode.Beq_S, label);
-            ilGenerator.Emit(OperationCode.Call, getOSVersion);
-            ilGenerator.Emit(OperationCode.Callvirt, getPlatform);
-            ilGenerator.Emit(OperationCode.Ldc_I4_4);
-            ilGenerator.Emit(OperationCode.Ceq);
-            ilGenerator.Emit(OperationCode.Ret);
-            ilGenerator.MarkLabel(label);
-            ilGenerator.Emit(OperationCode.Ldc_I4_1);
+            ilGenerator.Emit(OperationCode.Call, getNewLine);
+            ilGenerator.Emit(OperationCode.Ldstr, "\n");
+            ilGenerator.Emit(OperationCode.Call, stringOpEquality);
             ilGenerator.Emit(OperationCode.Ret);
 
             methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 8, methodDefinition, new List<ILocalDefinition>(), new List<ITypeDefinition>());

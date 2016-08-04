@@ -2,6 +2,7 @@
 {
     using System;
     using System.IO;
+    using System.Runtime.InteropServices;
     using Microsoft.Cci;
     using Microsoft.Cci.MutableCodeModel;
 
@@ -43,12 +44,16 @@
                 pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
 
                 PdbReader pdbReader = null;
-                string pdbFile = Path.ChangeExtension(inputFile, "pdb");
-                if (File.Exists(pdbFile))
+
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                 {
-                    using (var pdbStream = File.OpenRead(pdbFile))
+                    string pdbFile = Path.ChangeExtension(inputFile, "pdb");
+                    if (File.Exists(pdbFile))
                     {
-                        pdbReader = new PdbReader(pdbStream, host);
+                        using (var pdbStream = File.OpenRead(pdbFile))
+                        {
+                            pdbReader = new PdbReader(pdbStream, host);
+                        }
                     }
                 }
 

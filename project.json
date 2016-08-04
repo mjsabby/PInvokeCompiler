@@ -4,7 +4,7 @@
     "debugType": "portable",
     "emitEntryPoint": true
   },
-  "dependencies": { "Microsoft.Cci": "4.0.0-*" },
+  "dependencies": { "Microsoft.Cci": "4.0.0-*", "System.Runtime.InteropServices.RuntimeInformation": "4.0" },
   "frameworks": {
     "netcoreapp1.0": {
       "dependencies": {
