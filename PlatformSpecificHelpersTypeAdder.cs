@@ -244,7 +244,7 @@
             ilGenerator.Emit(OperationCode.Ldsfld, intPtrZero);
             ilGenerator.Emit(OperationCode.Stloc_0);
             ilGenerator.BeginTryBody();
-            ilGenerator.Emit(OperationCode.Ldc_I4, 0xff);
+            ilGenerator.Emit(OperationCode.Ldc_I4, 4096);
             ilGenerator.Emit(OperationCode.Call, allocHGlobal);
             ilGenerator.Emit(OperationCode.Stloc_0);
             ilGenerator.Emit(OperationCode.Ldloc_0);

@@ -10,30 +10,18 @@
     {
         public InteropHelperReferences(IMetadataHost host, Assembly assembly)
         {
-            ITypeReference systemOperatingSystem = null;
             ITypeReference systemEnvironment = null;
-            ITypeReference systemPlatformID = null;
 
             foreach (var typeRef in assembly.ResolvedAssembly.GetTypeReferences())
             {
                 var name = TypeHelper.GetTypeName(typeRef);
-                if (string.Equals(name, "System.OperatingSystem", StringComparison.Ordinal))
-                {
-                    systemOperatingSystem = typeRef;
-                    continue;
-                }
 
                 if (string.Equals(name, "System.Environment", StringComparison.Ordinal))
                 {
                     systemEnvironment = typeRef;
                     continue;
                 }
-
-                if (string.Equals(name, "System.PlatformID", StringComparison.Ordinal))
-                {
-                    systemPlatformID = typeRef;
-                }
-
+                
                 if (string.Equals(name, "System.Runtime.InteropServices.Marshal", StringComparison.Ordinal))
                 {
                     this.SystemRuntimeInteropServicesMarshal = typeRef;
@@ -58,22 +46,12 @@
                 mscorlibAsmRef = tempRef;
                 assembly.AssemblyReferences.Add(mscorlibAsmRef);
             }
-
-            if (systemOperatingSystem == null)
-            {
-                systemOperatingSystem = CreateTypeReference(host, mscorlibAsmRef, "System.OperatingSystem");
-            }
-
+            
             if (systemEnvironment == null)
             {
                 systemEnvironment = CreateTypeReference(host, mscorlibAsmRef, "System.Environment");
             }
-
-            if (systemPlatformID == null)
-            {
-                systemPlatformID = CreateTypeReference(host, mscorlibAsmRef, "System.PlatformID", isValueType: true);
-            }
-
+            
             if (this.SystemRuntimeInteropServicesMarshal == null)
             {
                 var interopServicesAssembly = assembly.AssemblyReferences.FirstOrDefault(t => t.Name.Value.Equals("System.Runtime.InteropServices")) ?? mscorlibAsmRef;
@@ -361,9 +339,7 @@
                 Type = host.PlatformType.SystemBoolean,
                 Name = host.NameTable.GetNameFor("IsUnix")
             };
-
-            var label = new ILGeneratorLabel();
-
+            
             var ilGenerator = new ILGenerator(host, methodDefinition);
             ilGenerator.Emit(OperationCode.Call, getNewLine);
             ilGenerator.Emit(OperationCode.Ldstr, "\n");
