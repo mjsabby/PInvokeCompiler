@@ -143,8 +143,8 @@
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Type = host.PlatformType.SystemString } }
             };
 
-            var stringarraymarshallingprolog = CreateStringArrayMarshallingProlog(host, typeDef, stringToGlobalAnsi);
-            this.StringArrayMarshallingProlog = stringarraymarshallingprolog;
+            var stringarrayansimarshallingprolog = CreateStringArrayMarshallingProlog(host, typeDef, stringToGlobalAnsi);
+            this.StringArrayAnsiMarshallingProlog = stringarrayansimarshallingprolog;
 
             var intPtrOpInequality = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
@@ -162,13 +162,13 @@
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Type = host.PlatformType.SystemIntPtr } }
             };
 
-            var stringarraymarshallingepilog = CreateStringArrayMarshallingEpilog(host, typeDef, intPtrZero, intPtrOpInequality, freeHGlobal);
-            this.StringArrayMarshallingEpilog = stringarraymarshallingepilog;
+            var stringarraymarshallingepilog = CreateStringArrayAnsiMarshallingEpilog(host, typeDef, intPtrZero, intPtrOpInequality, freeHGlobal);
+            this.StringArrayAnsiMarshallingEpilog = stringarraymarshallingepilog;
 
             var isLibraryInitialized = CreateIsLibraryInitialized(host, typeDef, intPtrZero);
             this.IsLibraryInitialized = isLibraryInitialized;
 
-            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, freelibrary, getprocaddress, stringtoansi, stringarraymarshallingprolog, stringarraymarshallingepilog, isLibraryInitialized };
+            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, freelibrary, getprocaddress, stringtoansi, stringarrayansimarshallingprolog, stringarraymarshallingepilog, isLibraryInitialized };
             typeDef.Fields = new List<IFieldDefinition> { isUnix };
 
             typeDef.Methods.AddRange(platformSpecificHelpers.Methods);
@@ -182,9 +182,9 @@
         
         public IMethodReference StringToAnsiByteArray { get; private set; }
 
-        public IMethodReference StringArrayMarshallingProlog { get; private set; }
+        public IMethodReference StringArrayAnsiMarshallingProlog { get; private set; }
 
-        public IMethodReference StringArrayMarshallingEpilog { get; private set; }
+        public IMethodReference StringArrayAnsiMarshallingEpilog { get; private set; }
 
         public IMethodReference LoadLibrary { get; private set; }
 
@@ -570,7 +570,7 @@
             return methodDefinition;
         }
 
-        private static IMethodDefinition CreateStringArrayMarshallingEpilog(IMetadataHost host, ITypeDefinition typeDef, IFieldReference intPtrZero, IMethodReference intPtrOpInequality, IMethodReference freeHGlobal)
+        private static IMethodDefinition CreateStringArrayAnsiMarshallingEpilog(IMetadataHost host, ITypeDefinition typeDef, IFieldReference intPtrZero, IMethodReference intPtrOpInequality, IMethodReference freeHGlobal)
         {
             var intPtrArrayType = new VectorTypeReference { ElementType = host.PlatformType.SystemIntPtr, Rank = 1 };
 

@@ -27,9 +27,9 @@
 
         private readonly IMethodReference getDelegateForFunctionPointer;
 
-        private readonly IMethodReference stringArrayMarshallingProlog;
+        private readonly IMethodReference stringArrayAnsiMarshallingProlog;
 
-        private readonly IMethodReference stringArrayMarshallingEpilog;
+        private readonly IMethodReference stringArrayAnsiMarshallingEpilog;
 
         private readonly ITypeReference skipTypeReference;
         
@@ -104,8 +104,8 @@
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemType } }
             };
 
-            this.stringArrayMarshallingProlog = interopHelperReferences.StringArrayMarshallingProlog;
-            this.stringArrayMarshallingEpilog = interopHelperReferences.StringArrayMarshallingEpilog;
+            this.stringArrayAnsiMarshallingProlog = interopHelperReferences.StringArrayAnsiMarshallingProlog;
+            this.stringArrayAnsiMarshallingEpilog = interopHelperReferences.StringArrayAnsiMarshallingEpilog;
             this.skipTypeReference = interopHelperReferences.PInvokeHelpers;
         }
 
@@ -283,7 +283,7 @@
                     if (paramToLocalMap.TryGetValue(elem, out t))
                     {
                         ilGenerator.Emit(OperationCode.Ldloc, t);
-                        ilGenerator.Emit(OperationCode.Call, this.stringArrayMarshallingEpilog); // TODO: Generalize for other array types
+                        ilGenerator.Emit(OperationCode.Call, this.stringArrayAnsiMarshallingEpilog); // TODO: Generalize for other array types
                     }
                 }
 
@@ -344,7 +344,7 @@
             {
                 var intPtrLocal = paramToLocalMap[parameter];
                 ilGenerator.Emit(OperationCode.Ldloc, intPtrLocal);
-                ilGenerator.Emit(OperationCode.Call, this.stringArrayMarshallingProlog);
+                ilGenerator.Emit(OperationCode.Call, this.stringArrayAnsiMarshallingProlog);
                 ilGenerator.Emit(OperationCode.Ldloc, intPtrLocal);
                 EmitBlittableTypeArrayMarshalling(locals, ilGenerator, new VectorTypeReference { ElementType = this.host.PlatformType.SystemIntPtr, Rank = 1 }.ResolvedArrayType);
             }
