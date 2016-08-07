@@ -37,7 +37,7 @@
                 var pinvokeMethodMetadataTraverser = new PInvokeMethodMetadataTraverser(interopHelperReference.PInvokeHelpers);
                 pinvokeMethodMetadataTraverser.TraverseChildren(mutable);
                 
-                var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(interopHelperReference.LoadLibrary, interopHelperReference.GetProcAddress, host, pinvokeMethodMetadataTraverser);
+                var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(interopHelperReference.LoadLibrary, interopHelperReference.GetProcAddress, interopHelperReference.IsLibraryInitialized, host, pinvokeMethodMetadataTraverser);
                 methodTransformationMetadataRewriter.RewriteChildren(mutable);
                 
                 var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(interopHelperReference, host, methodTransformationMetadataRewriter);

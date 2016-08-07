@@ -98,9 +98,23 @@
                 {
                     case UnmanagedType.LPWStr:
                     case UnmanagedType.LPStr:
-                        return parameterType.IsString();
+                        return parameterType.IsString() || parameterType.IsStringArray();
                     case UnmanagedType.LPArray:
-                        return parameterType.IsBlittable();
+                        if (parameterType.IsBlittable())
+                        {
+                            return true;
+                        }
+
+                        if (parameterType.IsStringArray())
+                        {
+                            var elementType = parameterDefinition.MarshallingInformation.ElementType;
+                            if (elementType == UnmanagedType.LPStr || elementType == UnmanagedType.LPWStr)
+                            {
+                                return true;
+                            }
+                        }
+
+                        return false;
                 }
             }
 

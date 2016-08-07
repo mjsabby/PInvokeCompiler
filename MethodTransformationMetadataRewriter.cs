@@ -20,7 +20,9 @@
 
         private readonly IMethodReference getProcAddress;
 
-        public MethodTransformationMetadataRewriter(IMethodReference loadLibrary, IMethodReference getProcAddress, IMetadataHost host, IPInvokeMethodsProvider methodsProvider)
+        private readonly IMethodReference isLibraryInitialized;
+
+        public MethodTransformationMetadataRewriter(IMethodReference loadLibrary, IMethodReference getProcAddress, IMethodReference isLibraryInitialized, IMetadataHost host, IPInvokeMethodsProvider methodsProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
             this.platformType = host.PlatformType;
@@ -28,6 +30,7 @@
             this.methodsProvider = methodsProvider;
             this.loadLibrary = loadLibrary;
             this.getProcAddress = getProcAddress;
+            this.isLibraryInitialized = isLibraryInitialized;
         }
 
         public override void RewriteChildren(NamedTypeDefinition typeDefinition)
@@ -54,7 +57,7 @@
             foreach (var methodDefinition in methodDefinitions)
             {
                 var fieldDef = this.CreateFunctionPointerField(typeDefinition, "p_" + methodDefinition.Name.Value);
-                var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule], fieldDef, methodDefinition.PlatformInvokeData.ImportName.Value);
+                var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule], fieldDef, this.isLibraryInitialized, methodDefinition.PlatformInvokeData);
                 var nativeMethodDef = this.CreateNativeMethod(methodDefinition);
                 
                 typeDefinition.Fields.Add(fieldDef);
@@ -220,7 +223,7 @@
             return methodDefinition;
         }
 
-        private IMethodDefinition CreateInitMethod(IMethodDefinition incomingMethodDefinition, IFieldReference loadLibraryModule, IFieldReference methodField, string entryPoint)
+        private IMethodDefinition CreateInitMethod(IMethodDefinition incomingMethodDefinition, IFieldReference loadLibraryModule, IFieldReference methodField, IMethodReference isLibraryInitMethod, IPlatformInvokeInformation platformInvokeInformation)
         {
             var methodDefinition = new MethodDefinition
             {
@@ -233,9 +236,12 @@
             };
 
             var ilGenerator = new ILGenerator(this.host, methodDefinition);
-
+            
             ilGenerator.Emit(OperationCode.Ldsfld, loadLibraryModule);
-            ilGenerator.Emit(OperationCode.Ldstr, entryPoint);
+            ilGenerator.Emit(OperationCode.Dup);
+            ilGenerator.Emit(OperationCode.Ldstr, platformInvokeInformation.ImportModule.Name.Value);
+            ilGenerator.Emit(OperationCode.Call, isLibraryInitMethod);
+            ilGenerator.Emit(OperationCode.Ldstr, platformInvokeInformation.ImportName.Value);
             ilGenerator.Emit(OperationCode.Call, this.getProcAddress);
             ilGenerator.Emit(OperationCode.Stsfld, methodField);
             ilGenerator.Emit(OperationCode.Ret);

@@ -99,13 +99,20 @@
             var isUnixStaticFunction = CreateIsUnixStaticFunction(host, typeDef, getNewLine, stringOpEquality);
             var cctor = CreateCCtor(host, typeDef, isUnix, isUnixStaticFunction);
 
-            var loadlibrary = CreateLoadLibrary(host, typeDef, windowsLoaderMethods.LoadLibrary, unixLoaderMethods.LoadLibrary, isUnix);
+            var intPtrZero = new FieldReference
+            {
+                Name = host.NameTable.GetNameFor("Zero"),
+                ContainingType = host.PlatformType.SystemIntPtr,
+                Type = host.PlatformType.SystemIntPtr
+            };
+
+            var loadlibrary = CreateLoadLibrary(host, typeDef, windowsLoaderMethods.LoadLibrary, unixLoaderMethods.LoadLibrary, isUnix, intPtrZero);
             this.LoadLibrary = loadlibrary;
 
             var freelibrary = CreateFreeLibrary(host, typeDef, windowsLoaderMethods.FreeLibrary, unixLoaderMethods.FreeLibrary, isUnix);
             this.FreeLibrary = freelibrary;
-
-            var getprocaddress = CreateGetProcAddress(host, typeDef, windowsLoaderMethods.GetProcAddress, unixLoaderMethods.GetProcAddress, isUnix);
+            
+            var getprocaddress = CreateGetProcAddress(host, typeDef, windowsLoaderMethods.GetProcAddress, unixLoaderMethods.GetProcAddress, isUnix, intPtrZero);
             this.GetProcAddress = getprocaddress;
 
             var getLength = new Microsoft.Cci.MutableCodeModel.MethodReference
@@ -139,13 +146,6 @@
             var stringarraymarshallingprolog = CreateStringArrayMarshallingProlog(host, typeDef, stringToGlobalAnsi);
             this.StringArrayMarshallingProlog = stringarraymarshallingprolog;
 
-            var intPtrZero = new FieldReference
-            {
-                Name = host.NameTable.GetNameFor("Zero"),
-                ContainingType = host.PlatformType.SystemIntPtr,
-                Type = host.PlatformType.SystemIntPtr
-            };
-
             var intPtrOpInequality = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.OpInequality,
@@ -165,7 +165,10 @@
             var stringarraymarshallingepilog = CreateStringArrayMarshallingEpilog(host, typeDef, intPtrZero, intPtrOpInequality, freeHGlobal);
             this.StringArrayMarshallingEpilog = stringarraymarshallingepilog;
 
-            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, freelibrary, getprocaddress, stringtoansi, stringarraymarshallingprolog, stringarraymarshallingepilog };
+            var isLibraryInitialized = CreateIsLibraryInitialized(host, typeDef, intPtrZero);
+            this.IsLibraryInitialized = isLibraryInitialized;
+
+            typeDef.Methods = new List<IMethodDefinition> { isUnixStaticFunction, cctor, loadlibrary, freelibrary, getprocaddress, stringtoansi, stringarraymarshallingprolog, stringarraymarshallingepilog, isLibraryInitialized };
             typeDef.Fields = new List<IFieldDefinition> { isUnix };
 
             typeDef.Methods.AddRange(platformSpecificHelpers.Methods);
@@ -188,8 +191,10 @@
         public IMethodReference GetProcAddress { get; private set; }
 
         private IMethodReference FreeLibrary { get; }
+
+        public IMethodReference IsLibraryInitialized { get; private set; }
         
-        private static IMethodDefinition CreateLoadLibrary(IMetadataHost host, ITypeDefinition typeDef, IMethodReference windowsLoadLibrary, IMethodReference unixLoadLibrary, IFieldReference isUnix)
+        private static IMethodDefinition CreateLoadLibrary(IMetadataHost host, ITypeDefinition typeDef, IMethodReference windowsLoadLibrary, IMethodReference unixLoadLibrary, IFieldReference isUnix, IFieldReference intPtrZero)
         {
             var methodDefinition = new MethodDefinition
             {
@@ -205,16 +210,54 @@
             var ilGenerator = new ILGenerator(host, methodDefinition);
 
             var label = new ILGeneratorLabel();
+            var retLabel = new ILGeneratorLabel();
+            var dupLabel = new ILGeneratorLabel();
+
+            var exceptionCtor = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor(".ctor"),
+                ContainingType = host.PlatformType.SystemException,
+                Type = host.PlatformType.SystemVoid,
+                CallingConvention = CallingConvention.HasThis,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString } }
+            };
+
+            var stringConcat = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("Concat"),
+                ContainingType = host.PlatformType.SystemString,
+                Type = host.PlatformType.SystemString,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString } }
+            };
+
+            var intPtrOpEquality = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.OpEquality,
+                ContainingType = host.PlatformType.SystemIntPtr,
+                Type = host.PlatformType.SystemBoolean,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemIntPtr } }
+            };
 
             ilGenerator.Emit(OperationCode.Ldsfld, isUnix);
             ilGenerator.Emit(OperationCode.Brtrue_S, label);
             ilGenerator.Emit(OperationCode.Ldarg_0);
             ilGenerator.Emit(OperationCode.Call, windowsLoadLibrary);
-            ilGenerator.Emit(OperationCode.Ret);
+            ilGenerator.Emit(OperationCode.Br_S, dupLabel);
             ilGenerator.MarkLabel(label);
             ilGenerator.Emit(OperationCode.Ldarg_0);
             ilGenerator.Emit(OperationCode.Ldc_I4_1);
             ilGenerator.Emit(OperationCode.Call, unixLoadLibrary);
+            ilGenerator.MarkLabel(dupLabel);
+            ilGenerator.Emit(OperationCode.Dup);
+            ilGenerator.Emit(OperationCode.Ldsfld, intPtrZero);
+            ilGenerator.Emit(OperationCode.Call, intPtrOpEquality);
+            ilGenerator.Emit(OperationCode.Brfalse_S, retLabel);
+            ilGenerator.Emit(OperationCode.Ldstr, "LoadLibrary failed for: ");
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Call, stringConcat);
+            ilGenerator.Emit(OperationCode.Newobj, exceptionCtor);
+            ilGenerator.Emit(OperationCode.Throw);
+            ilGenerator.MarkLabel(retLabel);
             ilGenerator.Emit(OperationCode.Ret);
 
             methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 8, methodDefinition, new List<ILocalDefinition>(), new List<ITypeDefinition>());
@@ -222,7 +265,7 @@
             return methodDefinition;
         }
 
-        private static IMethodDefinition CreateGetProcAddress(IMetadataHost host, ITypeDefinition typeDef, IMethodReference windowsGetProcAddress, IMethodReference unixGetProcAddress, IFieldReference isUnix)
+        private static IMethodDefinition CreateGetProcAddress(IMetadataHost host, ITypeDefinition typeDef, IMethodReference windowsGetProcAddress, IMethodReference unixGetProcAddress, IFieldReference isUnix, IFieldReference intPtrZero)
         {
             var methodDefinition = new MethodDefinition
             {
@@ -242,17 +285,55 @@
             var ilGenerator = new ILGenerator(host, methodDefinition);
 
             var label = new ILGeneratorLabel();
+            var retLabel = new ILGeneratorLabel();
+            var dupLabel = new ILGeneratorLabel();
+
+            var exceptionCtor = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor(".ctor"),
+                ContainingType = host.PlatformType.SystemException,
+                Type = host.PlatformType.SystemVoid,
+                CallingConvention = CallingConvention.HasThis,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString } }
+            };
+
+            var stringConcat = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("Concat"),
+                ContainingType = host.PlatformType.SystemString,
+                Type = host.PlatformType.SystemString,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString } }
+            };
+            
+            var intPtrOpEquality = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.OpEquality,
+                ContainingType = host.PlatformType.SystemIntPtr,
+                Type = host.PlatformType.SystemBoolean,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemIntPtr } }
+            };
 
             ilGenerator.Emit(OperationCode.Ldsfld, isUnix);
             ilGenerator.Emit(OperationCode.Brtrue_S, label);
             ilGenerator.Emit(OperationCode.Ldarg_0);
             ilGenerator.Emit(OperationCode.Ldarg_1);
             ilGenerator.Emit(OperationCode.Call, windowsGetProcAddress);
-            ilGenerator.Emit(OperationCode.Ret);
+            ilGenerator.Emit(OperationCode.Br_S, dupLabel);
             ilGenerator.MarkLabel(label);
             ilGenerator.Emit(OperationCode.Ldarg_0);
             ilGenerator.Emit(OperationCode.Ldarg_1);
             ilGenerator.Emit(OperationCode.Call, unixGetProcAddress);
+            ilGenerator.MarkLabel(dupLabel);
+            ilGenerator.Emit(OperationCode.Dup);
+            ilGenerator.Emit(OperationCode.Ldsfld, intPtrZero);
+            ilGenerator.Emit(OperationCode.Call, intPtrOpEquality);
+            ilGenerator.Emit(OperationCode.Brfalse_S, retLabel);
+            ilGenerator.Emit(OperationCode.Ldstr, "GetProcAddress failed for: ");
+            ilGenerator.Emit(OperationCode.Ldarg_1);
+            ilGenerator.Emit(OperationCode.Call, stringConcat);
+            ilGenerator.Emit(OperationCode.Newobj, exceptionCtor);
+            ilGenerator.Emit(OperationCode.Throw);
+            ilGenerator.MarkLabel(retLabel);
             ilGenerator.Emit(OperationCode.Ret);
 
             methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 8, methodDefinition, new List<ILocalDefinition>(), new List<ITypeDefinition>());
@@ -543,6 +624,67 @@
             ilGenerator.Emit(OperationCode.Ret);
 
             methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 2, methodDefinition, locals, new List<ITypeDefinition>());
+
+            return methodDefinition;
+        }
+
+        private static IMethodDefinition CreateIsLibraryInitialized(IMetadataHost host, ITypeDefinition typeDef, IFieldReference intPtrZero)
+        {
+            MethodDefinition methodDefinition = new MethodDefinition
+            {
+                ContainingTypeDefinition = typeDef,
+                IsStatic = true,
+                IsNeverInlined = true,
+                IsHiddenBySignature = true,
+                Visibility = TypeMemberVisibility.Assembly,
+                Type = host.PlatformType.SystemVoid,
+                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString } },
+                Name = host.NameTable.GetNameFor("IsLibraryInitialized")
+            };
+            
+            var ilGenerator = new ILGenerator(host, methodDefinition);
+            var retLabel = new ILGeneratorLabel();
+
+            var exceptionCtor = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor(".ctor"),
+                ContainingType = host.PlatformType.SystemException,
+                Type = host.PlatformType.SystemVoid,
+                CallingConvention = CallingConvention.HasThis,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString } }
+            };
+
+            var stringConcat = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("Concat"),
+                ContainingType = host.PlatformType.SystemString,
+                Type = host.PlatformType.SystemString,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString }, new ParameterDefinition { Index = 2, Type = host.PlatformType.SystemString }, new ParameterDefinition { Index = 3, Type = host.PlatformType.SystemString } }
+            };
+
+            var intPtrOpEquality = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.OpEquality,
+                ContainingType = host.PlatformType.SystemIntPtr,
+                Type = host.PlatformType.SystemBoolean,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemIntPtr } }
+            };
+
+            ilGenerator.Emit(OperationCode.Ldarg_0);
+            ilGenerator.Emit(OperationCode.Ldsfld, intPtrZero);
+            ilGenerator.Emit(OperationCode.Call, intPtrOpEquality);
+            ilGenerator.Emit(OperationCode.Brfalse_S, retLabel);
+            ilGenerator.Emit(OperationCode.Ldstr, "Library '");
+            ilGenerator.Emit(OperationCode.Ldarg_1);
+            ilGenerator.Emit(OperationCode.Ldstr, "' is not initialized. You must call LoadLibrary_");
+            ilGenerator.Emit(OperationCode.Ldarg_1);
+            ilGenerator.Emit(OperationCode.Call, stringConcat);
+            ilGenerator.Emit(OperationCode.Newobj, exceptionCtor);
+            ilGenerator.Emit(OperationCode.Throw);
+            ilGenerator.MarkLabel(retLabel);
+            ilGenerator.Emit(OperationCode.Ret);
+
+            methodDefinition.Body = new ILGeneratorMethodBody(ilGenerator, true, 8, methodDefinition, new List<ILocalDefinition>(), new List<ITypeDefinition>());
 
             return methodDefinition;
         }
