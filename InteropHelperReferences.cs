@@ -674,7 +674,7 @@
             ilGenerator.Emit(OperationCode.Brfalse_S, retLabel);
             ilGenerator.Emit(OperationCode.Ldstr, "Library '");
             ilGenerator.Emit(OperationCode.Ldarg_1);
-            ilGenerator.Emit(OperationCode.Ldstr, "' is not initialized. You must call LoadLibrary_");
+            ilGenerator.Emit(OperationCode.Ldstr, "' is not initialized. Load the native library (from its file path) by calling LoadLibrary_");
             ilGenerator.Emit(OperationCode.Ldarg_1);
             ilGenerator.Emit(OperationCode.Call, stringConcat);
             ilGenerator.Emit(OperationCode.Newobj, exceptionCtor);
