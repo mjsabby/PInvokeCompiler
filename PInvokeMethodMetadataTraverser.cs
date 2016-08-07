@@ -74,7 +74,8 @@
         {
             if (methodDefinition.ReturnValueIsMarshalledExplicitly)
             {
-                return false;
+                var unmanagedType = methodDefinition.ReturnValueMarshallingInformation.UnmanagedType;
+                return methodDefinition.Type.IsString() && (unmanagedType == UnmanagedType.LPWStr || unmanagedType == UnmanagedType.LPStr);
             }
 
             var returnType = methodDefinition.Type;

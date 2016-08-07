@@ -23,6 +23,8 @@
 
         private readonly IMethodReference ptrToStringAnsi;
 
+        private readonly IMethodReference ptrToStringUnicode;
+
         private readonly IMethodReference getTypeFromHandle;
 
         private readonly IMethodReference getDelegateForFunctionPointer;
@@ -90,6 +92,14 @@
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr } }
             };
 
+            this.ptrToStringUnicode = new Microsoft.Cci.MutableCodeModel.MethodReference
+            {
+                Name = host.NameTable.GetNameFor("PtrToStringUni"),
+                ContainingType = interopHelperReferences.SystemRuntimeInteropServicesMarshal,
+                Type = host.PlatformType.SystemString,
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr } }
+            };
+
             this.getTypeFromHandle = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.GetNameFor("GetTypeFromHandle"),
@@ -151,9 +161,23 @@
             EmitBlittableTypeArrayMarshalling(locals, ilGenerator, byteArrayType.ResolvedArrayType);
         }
 
-        private static void EmitStringReturnMarshalling(ILGenerator ilGenerator, IMethodReference ptrToStringAnsi)
+        private static void EmitStringReturnMarshalling(ILGenerator ilGenerator, IMethodReference ptrToStringAnsi, IMethodReference ptrToStringUnicode, StringFormatKind charSet, IMarshallingInformation returnTypeInfo)
         {
-            ilGenerator.Emit(OperationCode.Call, ptrToStringAnsi); // TODO: support Unicode
+            bool doUnicodeMarshalling = false;
+            if (returnTypeInfo != null && returnTypeInfo.UnmanagedType == UnmanagedType.LPWStr)
+            {
+                doUnicodeMarshalling = true;
+            }
+            else if (charSet == StringFormatKind.Unicode)
+            {
+                if (returnTypeInfo == null || (returnTypeInfo.UnmanagedType != UnmanagedType.LPStr &&
+                    returnTypeInfo.UnmanagedType != UnmanagedType.LPTStr))
+                {
+                    doUnicodeMarshalling = true;
+                }
+            }
+
+            ilGenerator.Emit(OperationCode.Call, doUnicodeMarshalling ? ptrToStringUnicode : ptrToStringAnsi);
         }
         
         private static void EmitBlittableTypeArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType)
@@ -238,6 +262,7 @@
             ilGenerator.Emit(OperationCode.Ret);
 
             var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, true, (ushort)((methodDefinition.ParameterCount + 1) * 2), methodDefinition, locals, new List<ITypeDefinition>());
+            methodDefinition.PlatformInvokeData = null;
             methodDefinition.Body = ilMethodBody;
         }
 
@@ -247,7 +272,7 @@
 
             if (TypeHelper.TypesAreEquivalent(returnType, host.PlatformType.SystemString))
             {
-                EmitStringReturnMarshalling(ilGenerator, this.ptrToStringAnsi);
+                EmitStringReturnMarshalling(ilGenerator, this.ptrToStringAnsi, this.ptrToStringUnicode, methodDefinition.PlatformInvokeData.StringFormat, methodDefinition.ReturnValueMarshallingInformation);
             }
             else if (returnType.ResolvedType.IsDelegate)
             {
@@ -402,7 +427,21 @@
                 }
                 else if (TypeHelper.TypesAreEquivalent(parameter.Type, this.host.PlatformType.SystemString))
                 {
+                    bool doUnicodeMarshalling = false;
                     if (parameter.MarshallingInformation.UnmanagedType == UnmanagedType.LPWStr)
+                    {
+                        doUnicodeMarshalling = true;
+                    }
+                    else if (pinvokeInfo.StringFormat == StringFormatKind.Unicode)
+                    {
+                        if (parameter.MarshallingInformation.UnmanagedType != UnmanagedType.LPStr &&
+                            parameter.MarshallingInformation.UnmanagedType != UnmanagedType.LPTStr)
+                        {
+                            doUnicodeMarshalling = true;
+                        }
+                    }
+
+                    if (doUnicodeMarshalling)
                     {
                         EmitUnicodeStringMarshalling(locals, ilGenerator, this.getOffSetToStringData, this.host.PlatformType.SystemString);
                     }
