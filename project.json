@@ -1,10 +1,12 @@
 {
-  "version": "1.0.0-*",
   "buildOptions": {
     "debugType": "portable",
     "emitEntryPoint": true
   },
-  "dependencies": { "Microsoft.Cci": "4.0.0-*", "System.Runtime.InteropServices.RuntimeInformation": "4.0" },
+  "dependencies": {
+    "Microsoft.Cci": "4.0.0-*",
+    "System.Runtime.InteropServices.RuntimeInformation": "4.0"
+  },
   "frameworks": {
     "netcoreapp1.0": {
       "dependencies": {
@@ -15,5 +17,6 @@
       },
       "imports": "dnxcore50"
     }
-  }
+  },
+  "version": "1.0.0-*"
 }

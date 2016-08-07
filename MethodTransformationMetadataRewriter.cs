@@ -47,11 +47,9 @@
             {
                 var fieldDef = this.CreateFunctionPointerField(typeDefinition, "pl_" + moduleRef.Name.Value);
                 var loadLibMethodDef = this.CreateLoadLibraryMethod(typeDefinition, moduleRef, fieldDef);
-                var loadLibDefaultMethodDef = CreatDefaultLoadLibraryMethod(typeDefinition, moduleRef, loadLibMethodDef, moduleRef.Name.Value);
 
                 typeDefinition.Fields.Add(fieldDef);
                 typeDefinition.Methods.Add(loadLibMethodDef);
-                typeDefinition.Methods.Add(loadLibDefaultMethodDef);
 
                 dict.Add(moduleRef, fieldDef);
             }
@@ -198,30 +196,6 @@
                 ContainingTypeDefinition = typeDefinition,
                 Name = this.nameTable.GetNameFor(fieldName)
             };
-        }
-
-        private IMethodDefinition CreatDefaultLoadLibraryMethod(ITypeDefinition typeDefinition, IModuleReference moduleRef, IMethodReference loadLibraryModule, string defaultDllValue)
-        {
-            var methodDefinition = new MethodDefinition
-            {
-                IsStatic = true,
-                Type = this.platformType.SystemVoid,
-                ContainingTypeDefinition = typeDefinition,
-                Name = this.nameTable.GetNameFor("LoadLibrary_" + moduleRef.Name.Value),
-                IsNeverInlined = true,
-                Visibility = TypeMemberVisibility.Public
-            };
-
-            var ilGenerator = new ILGenerator(this.host, methodDefinition);
-
-            ilGenerator.Emit(OperationCode.Ldstr, defaultDllValue);
-            ilGenerator.Emit(OperationCode.Call, loadLibraryModule);
-            ilGenerator.Emit(OperationCode.Ret);
-
-            var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, false, 2, methodDefinition, Enumerable.Empty<ILocalDefinition>(), Enumerable.Empty<ITypeDefinition>());
-            methodDefinition.Body = ilMethodBody;
-
-            return methodDefinition;
         }
 
         private IMethodDefinition CreateLoadLibraryMethod(ITypeDefinition typeDefinition, IModuleReference moduleRef, IFieldReference fieldRef)
