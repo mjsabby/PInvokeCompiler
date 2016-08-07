@@ -29,10 +29,12 @@
 
         private readonly IMethodReference stringArrayAnsiMarshallingProlog;
 
-        private readonly IMethodReference stringArrayAnsiMarshallingEpilog;
+        private readonly IMethodReference stringArrayUnicodeMarshallingProlog;
+
+        private readonly IMethodReference stringArrayMarshallingEpilog;
 
         private readonly ITypeReference skipTypeReference;
-        
+
         public PInvokeMethodMetadataRewriter(InteropHelperReferences interopHelperReferences, IMetadataHost host, IMethodTransformationMetadataProvider metadataProvider)
             : base(host, copyAndRewriteImmutableReferences: false)
         {
@@ -105,7 +107,8 @@
             };
 
             this.stringArrayAnsiMarshallingProlog = interopHelperReferences.StringArrayAnsiMarshallingProlog;
-            this.stringArrayAnsiMarshallingEpilog = interopHelperReferences.StringArrayAnsiMarshallingEpilog;
+            this.stringArrayUnicodeMarshallingProlog = interopHelperReferences.StringArrayUnicodeMarshallingProlog;
+            this.stringArrayMarshallingEpilog = interopHelperReferences.StringArrayMarshallingEpilog;
             this.skipTypeReference = interopHelperReferences.PInvokeHelpers;
         }
 
@@ -227,7 +230,7 @@
             ilGenerator.Emit(OperationCode.Brfalse_S, label);
             ilGenerator.Emit(OperationCode.Call, transformationMetadata.InitializeMethod);
             ilGenerator.MarkLabel(label);
-            this.LoadArguments(locals, paramToLocalMap, ilGenerator, methodDefinition.ParameterCount, i => methodDefinition.Parameters[i]);
+            this.LoadArguments(locals, paramToLocalMap, ilGenerator, methodDefinition.ParameterCount, i => methodDefinition.Parameters[i], methodDefinition.PlatformInvokeData);
             ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);
             ilGenerator.Emit(OperationCode.Call, transformationMetadata.NativeMethod);
             this.ReturnMarshalling(ilGenerator, methodDefinition);
@@ -283,7 +286,7 @@
                     if (paramToLocalMap.TryGetValue(elem, out t))
                     {
                         ilGenerator.Emit(OperationCode.Ldloc, t);
-                        ilGenerator.Emit(OperationCode.Call, this.stringArrayAnsiMarshallingEpilog); // TODO: Generalize for other array types
+                        ilGenerator.Emit(OperationCode.Call, this.stringArrayMarshallingEpilog); // TODO: Generalize for other array types
                     }
                 }
 
@@ -338,13 +341,27 @@
             }
         }
 
-        private void EmitNonBlittableArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType, IParameterDefinition parameter, Dictionary<IParameterDefinition, ILocalDefinition> paramToLocalMap)
+        private void EmitNonBlittableArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType, IParameterDefinition parameter, Dictionary<IParameterDefinition, ILocalDefinition> paramToLocalMap, IPlatformInvokeInformation pinvokeInfo)
         {
             if (TypeHelper.TypesAreEquivalent(arrayType.ElementType, this.host.PlatformType.SystemString))
             {
+                var prologMethod = this.stringArrayAnsiMarshallingProlog;
+
+                if (parameter.MarshallingInformation.ElementType == UnmanagedType.LPWStr)
+                {
+                    prologMethod = this.stringArrayUnicodeMarshallingProlog;
+                }
+                else if (pinvokeInfo.StringFormat == StringFormatKind.Unicode)
+                {
+                    if (parameter.MarshallingInformation.ElementType != UnmanagedType.LPStr && parameter.MarshallingInformation.ElementType != UnmanagedType.LPTStr)
+                    {
+                        prologMethod = this.stringArrayUnicodeMarshallingProlog;
+                    }
+                }
+
                 var intPtrLocal = paramToLocalMap[parameter];
                 ilGenerator.Emit(OperationCode.Ldloc, intPtrLocal);
-                ilGenerator.Emit(OperationCode.Call, this.stringArrayAnsiMarshallingProlog);
+                ilGenerator.Emit(OperationCode.Call, prologMethod);
                 ilGenerator.Emit(OperationCode.Ldloc, intPtrLocal);
                 EmitBlittableTypeArrayMarshalling(locals, ilGenerator, new VectorTypeReference { ElementType = this.host.PlatformType.SystemIntPtr, Rank = 1 }.ResolvedArrayType);
             }
@@ -354,7 +371,7 @@
             }
         }
 
-        private void LoadArguments(List<ILocalDefinition> locals, Dictionary<IParameterDefinition, ILocalDefinition> paramToLocalMap, ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider)
+        private void LoadArguments(List<ILocalDefinition> locals, Dictionary<IParameterDefinition, ILocalDefinition> paramToLocalMap, ILGenerator ilGenerator, int argumentCount, Func<int, IParameterDefinition> parameterProvider, IPlatformInvokeInformation pinvokeInfo)
         {
             this.PreprocessNonBlittableArrayArguments(locals, paramToLocalMap, ilGenerator, argumentCount, parameterProvider);
             for (int i = 0; i < argumentCount; ++i)
@@ -372,7 +389,7 @@
                     }
                     else
                     {
-                        EmitNonBlittableArrayMarshalling(locals, ilGenerator, arrayType, parameter, paramToLocalMap);
+                        EmitNonBlittableArrayMarshalling(locals, ilGenerator, arrayType, parameter, paramToLocalMap, pinvokeInfo);
                     }
                 }
                 else if (parameter.IsByReference)
