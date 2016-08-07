@@ -226,7 +226,6 @@
             ilGenerator.Emit(OperationCode.Call, this.intPtrOpEquality);
             ilGenerator.Emit(OperationCode.Brfalse_S, label);
             ilGenerator.Emit(OperationCode.Call, transformationMetadata.InitializeMethod);
-            ilGenerator.Emit(OperationCode.Stsfld, fieldDef);
             ilGenerator.MarkLabel(label);
             this.LoadArguments(locals, paramToLocalMap, ilGenerator, methodDefinition.ParameterCount, i => methodDefinition.Parameters[i]);
             ilGenerator.Emit(OperationCode.Ldsfld, fieldDef);

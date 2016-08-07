@@ -54,7 +54,7 @@
             foreach (var methodDefinition in methodDefinitions)
             {
                 var fieldDef = this.CreateFunctionPointerField(typeDefinition, "p_" + methodDefinition.Name.Value);
-                var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule], methodDefinition.PlatformInvokeData.ImportName.Value);
+                var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule], fieldDef, methodDefinition.PlatformInvokeData.ImportName.Value);
                 var nativeMethodDef = this.CreateNativeMethod(methodDefinition);
                 
                 typeDefinition.Fields.Add(fieldDef);
@@ -220,12 +220,12 @@
             return methodDefinition;
         }
 
-        private IMethodDefinition CreateInitMethod(IMethodDefinition incomingMethodDefinition, IFieldReference loadLibraryModule, string entryPoint)
+        private IMethodDefinition CreateInitMethod(IMethodDefinition incomingMethodDefinition, IFieldReference loadLibraryModule, IFieldReference methodField, string entryPoint)
         {
             var methodDefinition = new MethodDefinition
             {
                 IsStatic = true,
-                Type = this.platformType.SystemIntPtr,
+                Type = this.platformType.SystemVoid,
                 ContainingTypeDefinition = incomingMethodDefinition.ContainingTypeDefinition,
                 Name = this.nameTable.GetNameFor("init_" + incomingMethodDefinition.Name.Value),
                 IsNeverInlined = true,
@@ -237,6 +237,7 @@
             ilGenerator.Emit(OperationCode.Ldsfld, loadLibraryModule);
             ilGenerator.Emit(OperationCode.Ldstr, entryPoint);
             ilGenerator.Emit(OperationCode.Call, this.getProcAddress);
+            ilGenerator.Emit(OperationCode.Stsfld, methodField);
             ilGenerator.Emit(OperationCode.Ret);
 
             var ilMethodBody = new ILGeneratorMethodBody(ilGenerator, false, 2, methodDefinition, Enumerable.Empty<ILocalDefinition>(), Enumerable.Empty<ITypeDefinition>());
