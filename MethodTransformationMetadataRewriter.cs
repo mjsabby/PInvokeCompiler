@@ -76,9 +76,9 @@
             return this.methodTransformationTable[methodDefinition];
         }
 
-        private static MethodDefinition CreateRegularMethodDefinitionFromPInvokeMethodDefinition(IMethodDefinition methodDefinition, ITypeReference intPtrType)
+        private static MethodDefinition CreateRegularMethodDefinitionFromPInvokeMethodDefinition(IMethodDefinition methodDefinition, ITypeReference intPtrType, ITypeReference int32Type)
         {
-            var returnType = !IsBlittableType(methodDefinition.Type) || methodDefinition.ReturnValueIsByRef ? intPtrType : methodDefinition.Type; // TODO: return byref handled properly?
+            var returnType = !IsBlittableType(methodDefinition.Type) ? (methodDefinition.Type.TypeCode == PrimitiveTypeCode.Boolean ? int32Type : intPtrType) : methodDefinition.Type; // TODO: return byref handled properly?
 
             var nativeMethodDef = new MethodDefinition
             {
@@ -96,7 +96,11 @@
             foreach (var parameter in methodDefinition.Parameters)
             {
                 var paramDef = new ParameterDefinition { Type = parameter.Type, Index = j++, Name = parameter.Name };
-                if (!IsBlittableType(parameter.Type) || parameter.IsByReference)
+                if (!IsBlittableType(parameter.Type))
+                {
+                    paramDef.Type = parameter.Type.TypeCode == PrimitiveTypeCode.Boolean ? int32Type : intPtrType;
+                }
+                else if (parameter.IsByReference)
                 {
                     paramDef.Type = intPtrType;
                 }
@@ -257,13 +261,13 @@
         {
             var pinvokeData = pinvokeMethodDefinition.PlatformInvokeData;
 
-            var nativeMethodDef = CreateRegularMethodDefinitionFromPInvokeMethodDefinition(pinvokeMethodDefinition, this.host.PlatformType.SystemIntPtr);
+            var nativeMethodDef = CreateRegularMethodDefinitionFromPInvokeMethodDefinition(pinvokeMethodDefinition, this.host.PlatformType.SystemIntPtr, this.host.PlatformType.SystemInt32);
             nativeMethodDef.Parameters.Add(new ParameterDefinition { Type = this.platformType.SystemIntPtr, Index = pinvokeMethodDefinition.ParameterCount, Name = this.nameTable.GetNameFor("funcPtr") });
 
             var ilGenerator = new ILGenerator(this.host, nativeMethodDef);
             LoadArguments(ilGenerator, pinvokeMethodDefinition.ParameterCount + 1, i => nativeMethodDef.Parameters[i]);
 
-            var returnType = !IsBlittableType(pinvokeMethodDefinition.Type) ? this.platformType.SystemIntPtr : pinvokeMethodDefinition.Type;
+            var returnType = !IsBlittableType(pinvokeMethodDefinition.Type) ? (pinvokeMethodDefinition.Type.TypeCode == PrimitiveTypeCode.Boolean ? this.platformType.SystemInt32 : this.platformType.SystemIntPtr) : pinvokeMethodDefinition.Type;
 
             var funcPtr = new FunctionPointerTypeReference
             {
@@ -292,7 +296,11 @@
             {
                 var paramDef = new ParameterDefinition { Type = parameter.Type };
 
-                if (!IsBlittableType(parameter.Type) || parameter.IsByReference)
+                if (!IsBlittableType(parameter.Type))
+                {
+                    paramDef.Type = parameter.Type.TypeCode == PrimitiveTypeCode.Boolean ? this.platformType.SystemInt32 : this.platformType.SystemIntPtr;
+                }
+                else if (parameter.IsByReference)
                 {
                     paramDef.Type = this.platformType.SystemIntPtr;
                 }
