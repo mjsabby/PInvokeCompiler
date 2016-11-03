@@ -38,7 +38,7 @@
         private readonly ITypeReference skipTypeReference;
 
         public PInvokeMethodMetadataRewriter(InteropHelperReferences interopHelperReferences, IMetadataHost host, IMethodTransformationMetadataProvider metadataProvider)
-            : base(host, copyAndRewriteImmutableReferences: false)
+            : base(host)
         {
             this.metadataProvider = metadataProvider;
             var platformType = host.PlatformType;
@@ -133,6 +133,25 @@
             }
 
             base.RewriteChildren(method);
+        }
+
+        private static void EmitBoolMarshalling(ILGenerator ilGenerator)
+        {
+            var trueCase = new ILGeneratorLabel();
+            var falseCase = new ILGeneratorLabel();
+
+            ilGenerator.Emit(OperationCode.Brtrue_S, trueCase);
+            ilGenerator.Emit(OperationCode.Ldc_I4_0);
+            ilGenerator.Emit(OperationCode.Br_S, falseCase);
+            ilGenerator.MarkLabel(trueCase);
+            ilGenerator.Emit(OperationCode.Ldc_I4_1);
+            ilGenerator.MarkLabel(falseCase);
+        }
+
+        private static void EmitBooleanReturnMarshalling(ILGenerator ilGenerator)
+        {
+            ilGenerator.Emit(OperationCode.Ldc_I4_0);
+            ilGenerator.Emit(OperationCode.Cgt_Un);
         }
 
         private static void EmitUnicodeStringMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IMethodReference getOffsetToStringData, ITypeReference stringType)
@@ -281,6 +300,10 @@
                 ilGenerator.Emit(OperationCode.Call, this.getDelegateForFunctionPointer);
                 ilGenerator.Emit(OperationCode.Castclass, returnType);
             }
+            else if (returnType.TypeCode == PrimitiveTypeCode.Boolean)
+            {
+                EmitBooleanReturnMarshalling(ilGenerator);
+            }
         }
 
         private void PostprocessNonBlittableArrayArguments(IMethodDefinition methodDefinition, List<ILocalDefinition> locals, Dictionary<IParameterDefinition, ILocalDefinition> paramToLocalMap, ILGenerator ilGenerator)
@@ -420,6 +443,10 @@
                 else if (parameter.IsByReference)
                 {
                     EmitByRefMarshalling(locals, ilGenerator, parameter.Type);
+                }
+                else if (parameter.Type.TypeCode == PrimitiveTypeCode.Boolean)
+                {
+                    EmitBoolMarshalling(ilGenerator);
                 }
                 else if (parameter.Type.ResolvedType.IsDelegate)
                 {

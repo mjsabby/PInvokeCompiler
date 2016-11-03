@@ -79,7 +79,7 @@
             }
 
             var returnType = methodDefinition.Type;
-            if (returnType.IsBlittable() || returnType.IsDelegate() || returnType.IsString())
+            if (returnType.TypeCode == PrimitiveTypeCode.Boolean || returnType.IsBlittable() || returnType.IsDelegate() || returnType.IsString())
             {
                 return true;
             }
@@ -120,7 +120,7 @@
             }
 
             // blittable, delegates and strings -- these last two have special marshalling we take care of
-            if (parameterType.IsBlittable() || parameterType.IsDelegate() || parameterType.IsString())
+            if (parameterType.TypeCode == PrimitiveTypeCode.Boolean || parameterType.IsBlittable() || parameterType.IsDelegate() || parameterType.IsString())
             {
                 return true;
             }
