@@ -1,4 +1,10 @@
-﻿namespace PInvokeCompiler
+﻿//-----------------------------------------------------------------------
+// <copyright file="MethodTransformationMetadataRewriter.cs" company="Microsoft">
+//     Copyright (c) Microsoft. All rights reserved.
+// </copyright>
+//-----------------------------------------------------------------------
+
+namespace PInvokeCompiler
 {
     using System;
     using System.Collections.Generic;
@@ -60,7 +66,7 @@
                 var fieldDef = this.CreateFunctionPointerField(typeDefinition, "p_" + methodDefinition.Name.Value);
                 var initMethodDef = this.CreateInitMethod(methodDefinition, dict[methodDefinition.PlatformInvokeData.ImportModule], fieldDef, this.isLibraryInitialized, methodDefinition.PlatformInvokeData);
                 var nativeMethodDef = this.CreateNativeMethod(methodDefinition);
-                
+
                 typeDefinition.Fields.Add(fieldDef);
                 typeDefinition.Methods.Add(nativeMethodDef);
                 typeDefinition.Methods.Add(initMethodDef);
@@ -161,7 +167,7 @@
                 case PrimitiveTypeCode.Boolean:
                     return false;
             }
-            
+
             if (typeRef.IsValueType)
             {
                 var typeDef = typeRef.ResolvedType;
@@ -212,7 +218,7 @@
                 Name = this.nameTable.GetNameFor("LoadLibrary_" + moduleRef.Name.Value),
                 IsNeverInlined = true,
                 Visibility = TypeMemberVisibility.Public,
-                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = this.platformType.SystemString, Name = host.NameTable.GetNameFor("nativeLibraryFilePath") } }
+                Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = this.platformType.SystemString, Name = this.host.NameTable.GetNameFor("nativeLibraryFilePath") } }
             };
 
             var ilGenerator = new ILGenerator(this.host, methodDefinition);
@@ -241,7 +247,7 @@
             };
 
             var ilGenerator = new ILGenerator(this.host, methodDefinition);
-            
+
             ilGenerator.Emit(OperationCode.Ldsfld, loadLibraryModule);
             ilGenerator.Emit(OperationCode.Dup);
             ilGenerator.Emit(OperationCode.Ldstr, platformInvokeInformation.ImportModule.Name.Value);

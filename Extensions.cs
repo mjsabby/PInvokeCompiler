@@ -1,4 +1,10 @@
-﻿namespace PInvokeCompiler
+﻿//-----------------------------------------------------------------------
+// <copyright file="Extensions.cs" company="Microsoft">
+//     Copyright (c) Microsoft. All rights reserved.
+// </copyright>
+//-----------------------------------------------------------------------
+
+namespace PInvokeCompiler
 {
     using System;
     using Microsoft.Cci;
@@ -46,7 +52,7 @@
 
             return false;
         }
-        
+
         internal static bool IsPrimitive(this ITypeReference typeRef)
         {
             var typeCode = typeRef.TypeCode;

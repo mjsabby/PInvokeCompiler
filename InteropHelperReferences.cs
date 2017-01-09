@@ -1,4 +1,10 @@
-﻿namespace PInvokeCompiler
+﻿//-----------------------------------------------------------------------
+// <copyright file="InteropHelperReferences.cs" company="Microsoft">
+//     Copyright (c) Microsoft. All rights reserved.
+// </copyright>
+//-----------------------------------------------------------------------
+
+namespace PInvokeCompiler
 {
     using System;
     using System.Collections.Generic;
@@ -21,7 +27,7 @@
                     systemEnvironment = typeRef;
                     continue;
                 }
-                
+
                 if (string.Equals(name, "System.Runtime.InteropServices.Marshal", StringComparison.Ordinal))
                 {
                     this.SystemRuntimeInteropServicesMarshal = typeRef;
@@ -46,7 +52,7 @@
                 mscorlibAsmRef = tempRef;
                 assembly.AssemblyReferences.Add(mscorlibAsmRef);
             }
-            
+
             if (systemEnvironment == null)
             {
                 systemEnvironment = CreateTypeReference(host, mscorlibAsmRef, "System.Environment");
@@ -89,7 +95,7 @@
             rootUnitNamespace.Members.Add(typeDef);
             assembly.AllTypes.Add(typeDef);
 
-            var platformSpecificHelpers = new PlatformSpecificHelpersTypeAdder(host, typeDef, SystemRuntimeInteropServicesMarshal);
+            var platformSpecificHelpers = new PlatformSpecificHelpersTypeAdder(host, typeDef, this.SystemRuntimeInteropServicesMarshal);
 
             var windowsLoaderMethods = platformSpecificHelpers.WindowsLoaderMethods;
             var unixLoaderMethods = platformSpecificHelpers.UnixLoaderMethods;
@@ -105,7 +111,7 @@
                 ContainingType = host.PlatformType.SystemIntPtr,
                 Type = host.PlatformType.SystemIntPtr
             };
-            
+
             var getLength = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.GetNameFor("get_Length"),
@@ -122,7 +128,7 @@
                 CallingConvention = CallingConvention.HasThis,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemInt32 } }
             };
-            
+
             var stringToGlobalAnsi = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.GetNameFor("StringToHGlobalAnsi"),
@@ -138,7 +144,7 @@
                 Type = host.PlatformType.SystemIntPtr,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Type = host.PlatformType.SystemString } }
             };
-            
+
             var intPtrOpInequality = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.OpInequality,
@@ -175,7 +181,7 @@
         public ITypeReference SystemRuntimeCompilerServicesRuntimeHelpers { get; }
 
         public ITypeReference PInvokeHelpers { get; }
-        
+
         public IMethodDefinition StringToAnsiByteArray { get; }
 
         public IMethodDefinition StringArrayAnsiMarshallingProlog { get; }
@@ -188,10 +194,10 @@
 
         public IMethodDefinition GetProcAddress { get; }
 
+        public IMethodDefinition IsLibraryInitialized { get; }
+
         private IMethodDefinition FreeLibrary { get; }
 
-        public IMethodDefinition IsLibraryInitialized { get; }
-        
         private static IMethodDefinition CreateLoadLibrary(IMetadataHost host, ITypeDefinition typeDef, IMethodReference windowsLoadLibrary, IMethodReference unixLoadLibrary, IFieldReference isUnix, IFieldReference intPtrZero)
         {
             var methodDefinition = new MethodDefinition
@@ -302,7 +308,7 @@
                 Type = host.PlatformType.SystemString,
                 Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString } }
             };
-            
+
             var intPtrOpEquality = new Microsoft.Cci.MutableCodeModel.MethodReference
             {
                 Name = host.NameTable.OpEquality,
@@ -418,7 +424,7 @@
                 Type = host.PlatformType.SystemBoolean,
                 Name = host.NameTable.GetNameFor("IsUnix")
             };
-            
+
             var ilGenerator = new ILGenerator(host, methodDefinition);
             ilGenerator.Emit(OperationCode.Call, getNewLine);
             ilGenerator.Emit(OperationCode.Ldstr, "\n");
@@ -458,7 +464,7 @@
                 Parameters = new List<IParameterDefinition> { new ParameterDefinition { Type = host.PlatformType.SystemString } },
                 Name = host.NameTable.GetNameFor("StringToAnsiByteArray")
             };
-            
+
             var length = new LocalDefinition { Type = host.PlatformType.SystemInt32 };
             var byteArray = new LocalDefinition { Type = byteArrayType.ResolvedArrayType };
             var loopIndex = new LocalDefinition { Type = host.PlatformType.SystemInt32 };
@@ -639,7 +645,7 @@
                 Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString } },
                 Name = host.NameTable.GetNameFor("IsLibraryInitialized")
             };
-            
+
             var ilGenerator = new ILGenerator(host, methodDefinition);
             var retLabel = new ILGeneratorLabel();
 

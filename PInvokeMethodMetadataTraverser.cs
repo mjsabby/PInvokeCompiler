@@ -1,4 +1,10 @@
-﻿namespace PInvokeCompiler
+﻿//-----------------------------------------------------------------------
+// <copyright file="PInvokeMethodMetadataTraverser.cs" company="Microsoft">
+//     Copyright (c) Microsoft. All rights reserved.
+// </copyright>
+//-----------------------------------------------------------------------
+
+namespace PInvokeCompiler
 {
     using System;
     using System.Collections.Generic;
@@ -30,7 +36,7 @@
 
                 if (!IsReturnTypeSupported(methodDefinition))
                 {
-                    throw new Exception($"Return type {methodDefinition.Type} is not supported for marshalling");   
+                    throw new Exception($"Return type {methodDefinition.Type} is not supported for marshalling");
                 }
 
                 if (!methodDefinition.Parameters.All(IsParameterSupported))
@@ -69,7 +75,7 @@
             HashSet<IModuleReference> moduleRefs;
             return this.moduleRefsTable.TryGetValue(typeDefinition, out moduleRefs) ? moduleRefs : Enumerable.Empty<IModuleReference>();
         }
-        
+
         private static bool IsReturnTypeSupported(IMethodDefinition methodDefinition)
         {
             if (methodDefinition.ReturnValueIsMarshalledExplicitly)
@@ -90,7 +96,7 @@
         private static bool IsParameterSupported(IParameterDefinition parameterDefinition)
         {
             var parameterType = parameterDefinition.Type;
-            
+
             // special short-circuit for specific marshalling.
             if (parameterDefinition.IsMarshalledExplicitly)
             {
@@ -132,9 +138,7 @@
             }
 
             // TODO: Support ICustomMarshaler
-
             return false;
         }
-        
     }
 }

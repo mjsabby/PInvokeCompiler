@@ -1,4 +1,10 @@
-﻿namespace PInvokeCompiler
+﻿//-----------------------------------------------------------------------
+// <copyright file="WindowsLoaderMethods.cs" company="Microsoft">
+//     Copyright (c) Microsoft. All rights reserved.
+// </copyright>
+//-----------------------------------------------------------------------
+
+namespace PInvokeCompiler
 {
     using Microsoft.Cci;
 

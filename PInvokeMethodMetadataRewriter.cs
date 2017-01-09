@@ -1,4 +1,10 @@
-﻿namespace PInvokeCompiler
+﻿//-----------------------------------------------------------------------
+// <copyright file="PInvokeMethodMetadataRewriter.cs" company="Microsoft">
+//     Copyright (c) Microsoft. All rights reserved.
+// </copyright>
+//-----------------------------------------------------------------------
+
+namespace PInvokeCompiler
 {
     using System;
     using System.Collections.Generic;
@@ -175,7 +181,7 @@
         {
             var byteType = platformType.SystemUInt8;
             var byteArrayType = new VectorTypeReference { ElementType = byteType, Rank = 1 };
-            
+
             ilGenerator.Emit(OperationCode.Call, stringToAnsiByteArray);
             EmitBlittableTypeArrayMarshalling(locals, ilGenerator, byteArrayType.ResolvedArrayType);
         }
@@ -198,7 +204,7 @@
 
             ilGenerator.Emit(OperationCode.Call, doUnicodeMarshalling ? ptrToStringUnicode : ptrToStringAnsi);
         }
-        
+
         private static void EmitBlittableTypeArrayMarshalling(List<ILocalDefinition> locals, ILGenerator ilGenerator, IArrayType arrayType)
         {
             var nullCaseLabel = new ILGeneratorLabel();
@@ -253,6 +259,47 @@
             ilGenerator.Emit(OperationCode.Conv_I);
         }
 
+        private static void Ldarg(ILGenerator ilGenerator, IParameterDefinition parameter, int i)
+        {
+            switch (i)
+            {
+                case 0:
+                    ilGenerator.Emit(OperationCode.Ldarg_0);
+                    break;
+                case 1:
+                    ilGenerator.Emit(OperationCode.Ldarg_1);
+                    break;
+                case 2:
+                    ilGenerator.Emit(OperationCode.Ldarg_2);
+                    break;
+                case 3:
+                    ilGenerator.Emit(OperationCode.Ldarg_3);
+                    break;
+                default:
+                    ilGenerator.Emit(i <= byte.MaxValue ? OperationCode.Ldarg_S : OperationCode.Ldarg, parameter);
+                    break;
+            }
+        }
+
+        private static bool IsAnyParameterNonBlittableArray(IMethodDefinition methodDefinition)
+        {
+            return methodDefinition.Parameters.Any(parameter => IsNonBlittableArray(parameter.Type));
+        }
+
+        private static bool IsNonBlittableArray(ITypeReference typeRef)
+        {
+            var arrayType = typeRef.ResolvedType as IArrayType;
+            if (arrayType != null)
+            {
+                if (!arrayType.IsBlittable())
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private void TransformPInvokeMethodDefinitionToImplementedMethodDefinition(MethodDefinition methodDefinition)
         {
             methodDefinition.IsPlatformInvoke = false;
@@ -289,7 +336,7 @@
         {
             var returnType = methodDefinition.Type;
 
-            if (TypeHelper.TypesAreEquivalent(returnType, host.PlatformType.SystemString))
+            if (TypeHelper.TypesAreEquivalent(returnType, this.host.PlatformType.SystemString))
             {
                 EmitStringReturnMarshalling(ilGenerator, this.ptrToStringAnsi, this.ptrToStringUnicode, methodDefinition.PlatformInvokeData.StringFormat, methodDefinition.ReturnValueMarshallingInformation);
             }
@@ -426,7 +473,7 @@
             {
                 var parameter = parameterProvider(i);
                 Ldarg(ilGenerator, parameter, i);
-                
+
                 if (parameter.Type.ResolvedType is IArrayType)
                 {
                     var arrayType = (IArrayType)parameter.Type.ResolvedType;
@@ -437,7 +484,7 @@
                     }
                     else
                     {
-                        EmitNonBlittableArrayMarshalling(locals, ilGenerator, arrayType, parameter, paramToLocalMap, pinvokeInfo);
+                        this.EmitNonBlittableArrayMarshalling(locals, ilGenerator, arrayType, parameter, paramToLocalMap, pinvokeInfo);
                     }
                 }
                 else if (parameter.IsByReference)
@@ -478,47 +525,6 @@
                     }
                 }
             }
-        }
-
-        private static void Ldarg(ILGenerator ilGenerator, IParameterDefinition parameter, int i)
-        {
-            switch (i)
-            {
-                case 0:
-                    ilGenerator.Emit(OperationCode.Ldarg_0);
-                    break;
-                case 1:
-                    ilGenerator.Emit(OperationCode.Ldarg_1);
-                    break;
-                case 2:
-                    ilGenerator.Emit(OperationCode.Ldarg_2);
-                    break;
-                case 3:
-                    ilGenerator.Emit(OperationCode.Ldarg_3);
-                    break;
-                default:
-                    ilGenerator.Emit(i <= byte.MaxValue ? OperationCode.Ldarg_S : OperationCode.Ldarg, parameter);
-                    break;
-            }
-        }
-
-        private static bool IsAnyParameterNonBlittableArray(IMethodDefinition methodDefinition)
-        {
-            return methodDefinition.Parameters.Any(parameter => IsNonBlittableArray(parameter.Type));
-        }
-
-        private static bool IsNonBlittableArray(ITypeReference typeRef)
-        {
-            var arrayType = typeRef.ResolvedType as IArrayType;
-            if (arrayType != null)
-            {
-                if (!arrayType.IsBlittable())
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
     }
 }

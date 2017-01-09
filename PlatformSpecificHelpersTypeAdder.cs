@@ -1,4 +1,10 @@
-﻿namespace PInvokeCompiler
+﻿//-----------------------------------------------------------------------
+// <copyright file="PlatformSpecificHelpersTypeAdder.cs" company="Microsoft">
+//     Copyright (c) Microsoft. All rights reserved.
+// </copyright>
+//-----------------------------------------------------------------------
+
+namespace PInvokeCompiler
 {
     using System.Collections.Generic;
     using Microsoft.Cci;
@@ -27,7 +33,7 @@
             {
                 ModuleIdentity = new ModuleIdentity(host.NameTable.GetNameFor("kernel32"), "unknown://location")
             };
-            
+
             var linux = CreateUnixSpecificHelpers(host, typeDef, "linux_", "dlopen", "dlclose", "dlsym", libdl, PInvokeCallingConvention.CDecl);
             var darwin = CreateUnixSpecificHelpers(host, typeDef, "darwin_", "dlopen", "dlclose", "dlsym", libSystem, PInvokeCallingConvention.CDecl);
             var bsd = CreateUnixSpecificHelpers(host, typeDef, "bsd_", "dlopen", "dlclose", "dlsym", libc, PInvokeCallingConvention.CDecl);
@@ -100,10 +106,7 @@
             return CreatePInvokeMethod(
                 host,
                 typeDef,
-                new List<IParameterDefinition>
-                {
-                    new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString }
-                },
+                new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString } },
                 host.PlatformType.SystemIntPtr,
                 moduleRef,
                 prefix,
@@ -116,10 +119,7 @@
             return CreatePInvokeMethod(
                 host,
                 typeDef,
-                new List<IParameterDefinition>
-                {
-                    new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }
-                },
+                new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr } },
                 host.PlatformType.SystemInt32,
                 moduleRef,
                 prefix,
@@ -132,11 +132,7 @@
             return CreatePInvokeMethod(
                 host,
                 typeDef,
-                new List<IParameterDefinition>
-                {
-                    new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr },
-                    new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString }
-                },
+                new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemIntPtr }, new ParameterDefinition { Index = 1, Type = host.PlatformType.SystemString } },
                 host.PlatformType.SystemIntPtr,
                 moduleRef,
                 prefix,
@@ -257,7 +253,7 @@
 
             ilGenerator.Emit(OperationCode.Call, ptrToStringAnsi);
             ilGenerator.Emit(OperationCode.Stloc_1);
-            
+
             var exitLabel = new ILGeneratorLabel();
             var endFinallyLabel = new ILGeneratorLabel();
 
@@ -351,7 +347,7 @@
                 ContainingType = host.PlatformType.SystemException,
                 Type = host.PlatformType.SystemVoid,
                 CallingConvention = CallingConvention.HasThis,
-                Parameters = new List<IParameterTypeInformation> {  new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString } }
+                Parameters = new List<IParameterTypeInformation> { new ParameterDefinition { Index = 0, Type = host.PlatformType.SystemString } }
             };
 
             ilGenerator.Emit(OperationCode.Newobj, exceptionCtor);
@@ -370,7 +366,7 @@
             {
                 ilGenerator.Emit(OperationCode.Ldarg_1);
             }
-            
+
             ilGenerator.Emit(OperationCode.Call, helper);
             ilGenerator.Emit(OperationCode.Ret);
         }
@@ -427,11 +423,11 @@
             var unamePInvokeMethod = CreateUnamePInvokeMethod(host, typeDef, libc);
             var unameMethod = CreateUnameMethod(host, typeDef, intPtrZero, allocalHGlobal, ptrToStringAnsi, freeHGlobal, unamePInvokeMethod, intPtrOpInEquality);
             var getosmethod = CreateGetOperatingSystemMethod(host, typeDef, stringOpEquality, unameMethod);
-            
+
             var dlopen = CreateDLOpen(host, typeDef, getosmethod, linuxMethodList[0], darwinMethodList[0], bsdMethodList[0]);
             var dlclose = CreateDLClose(host, typeDef, getosmethod, linuxMethodList[1], darwinMethodList[1], bsdMethodList[1]);
             var dlsym = CreateDLSym(host, typeDef, getosmethod, linuxMethodList[2], darwinMethodList[2], bsdMethodList[2]);
-            
+
             return new List<IMethodDefinition> { dlopen, dlclose, dlsym, unameMethod, unamePInvokeMethod, getosmethod };
         }
     }

@@ -1,4 +1,10 @@
-﻿namespace PInvokeCompiler
+﻿//-----------------------------------------------------------------------
+// <copyright file="Program.cs" company="Microsoft">
+//     Copyright (c) Microsoft. All rights reserved.
+// </copyright>
+//-----------------------------------------------------------------------
+
+namespace PInvokeCompiler
 {
     using System;
     using System.IO;
@@ -30,16 +36,16 @@
                     return;
                 }
 
-                Assembly mutable = new MetadataDeepCopier(host).Copy(assembly);                
+                Assembly mutable = new MetadataDeepCopier(host).Copy(assembly);
 
                 var interopHelperReference = new InteropHelperReferences(host, mutable);
 
                 var pinvokeMethodMetadataTraverser = new PInvokeMethodMetadataTraverser(interopHelperReference.PInvokeHelpers);
                 pinvokeMethodMetadataTraverser.TraverseChildren(mutable);
-                
+
                 var methodTransformationMetadataRewriter = new MethodTransformationMetadataRewriter(interopHelperReference.LoadLibrary, interopHelperReference.GetProcAddress, interopHelperReference.IsLibraryInitialized, host, pinvokeMethodMetadataTraverser);
                 methodTransformationMetadataRewriter.RewriteChildren(mutable);
-                
+
                 var pinvokeMethodMetadataRewriter = new PInvokeMethodMetadataRewriter(interopHelperReference, host, methodTransformationMetadataRewriter);
                 pinvokeMethodMetadataRewriter.RewriteChildren(mutable);
 
