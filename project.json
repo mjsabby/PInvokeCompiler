@@ -1,0 +1,24 @@
+{
+  "buildOptions": {
+    "debugType": "portable",
+    "emitEntryPoint": true
+  },
+  "dependencies": {
+    "Microsoft.Cci": "4.0.0-*",
+    "System.Runtime.InteropServices.RuntimeInformation": "4.0"
+  },
+  "frameworks": {
+    "netcoreapp1.0": {
+      "dependencies": {
+        "Microsoft.NETCore.App": {
+          "type": "platform",
+          "version": "1.0.0"
+        }
+      },
+      "imports": "dnxcore50"
+    }
+  },
+  "version": "1.0.0-rc1-*",
+  "authors": ["mjsabby"],
+  "description": "PInvokeCompiler takes a .NET DLL which has PInvoke declarations and changes it to have an additional required initialization method that the caller must call: InitializeNativeLibrary(pathToDllOrSo)"
+}
