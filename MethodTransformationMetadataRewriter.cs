@@ -215,7 +215,7 @@ namespace PInvokeCompiler
                 IsStatic = true,
                 Type = this.platformType.SystemVoid,
                 ContainingTypeDefinition = typeDefinition,
-                Name = this.nameTable.GetNameFor("LoadLibrary_" + moduleRef.Name.Value),
+                Name = this.nameTable.GetNameFor("LoadLibrary" + moduleRef.Name.Value),
                 IsNeverInlined = true,
                 Visibility = TypeMemberVisibility.Public,
                 Parameters = new List<IParameterDefinition> { new ParameterDefinition { Index = 0, Type = this.platformType.SystemString, Name = this.host.NameTable.GetNameFor("nativeLibraryFilePath") } }
